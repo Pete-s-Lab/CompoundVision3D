@@ -58,6 +58,13 @@ class SCRIPT_3_OT_Operator(bpy.types.Operator):
     bl_label = "Run Script 3"
     
     def execute(self, context):
+        # Step 3 Settings:
+        diameter = 2.5/4 # 25 2.5
+        segments = 16 # 4 16
+        ring_count = 8 # 3 8 
+
+        camera_type = 'PERSP' # 'ORTHO' 'PERSP'
+        
         curr_filename_raw = bpy.path.basename(bpy.context.blend_data.filepath)
         curr_filename = re.sub(".blend$", "", curr_filename_raw)
         curr_filepath = bpy.path.abspath("//")
@@ -66,12 +73,55 @@ class SCRIPT_3_OT_Operator(bpy.types.Operator):
         csv_file_path = p.join(candidates_filepath, curr_filename+'_facet_candidates.csv')
         file = csv.reader(open(csv_file_path, newline=''), delimiter=',')
         radius = 0.01
-        for idx, row in enumerate(file):
-            if idx > 0:
-                x = float(row[1])
-                y = float(row[2])
-                z = float(row[3])
-                bpy.ops.object.empty_add(type='SPHERE', radius=radius, align='WORLD', location=(x/1000, y/1000, z/1000), scale=(1, 1, 1))
+        
+        
+        # Function to create a sphere template
+        def create_sphere_template(radius=0.1):
+            mesh = bpy.data.meshes.new(name="TemplateSphereMesh")
+            sphere = bpy.data.objects.new(name="TemplateSphere", object_data=mesh)
+            bpy.context.collection.objects.link(sphere)
+
+            # Create a UV sphere mesh
+            bpy.ops.object.select_all(action='DESELECT')
+            bpy.context.view_layer.objects.active = sphere
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=radius)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            return sphere
+
+        # Function to add spheres for points from a CSV
+        def add_spheres_from_csv(filepath, radius=10):
+            # Create the template sphere
+            template_sphere = create_sphere_template(radius)
+
+            # Read points from the CSV file
+            with open(filepath, 'r') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    # Extract coordinates and ID
+                    x, y, z = float(row['x'])/1000, float(row['y'])/1000, float(row['z'])/1000
+                    point_id = row['ID']
+                    
+                    # Create an instance of the template sphere
+                    sphere_instance = template_sphere.copy()
+                    sphere_instance.location = (x, y, z)
+                    sphere_instance.name = f"{point_id}"  # Name the sphere based on the ID
+                    bpy.context.collection.objects.link(sphere_instance)
+            
+            # Delete the original template sphere to save memory
+            bpy.data.objects.remove(template_sphere)
+
+        # Add spheres for the point cloud in the CSV
+        add_spheres_from_csv(csv_file_path, radius=diameter/2/100)
+        
+        
+        # for idx, row in enumerate(file):
+            # if idx > 0:
+                # x = float(row[1])
+                # y = float(row[2])
+                # z = float(row[3])
+                # bpy.ops.object.empty_add(type='SPHERE', radius=radius, align='WORLD', location=(x/1000, y/1000, z/1000), scale=(1, 1, 1))
         self.report({'INFO'}, "Script 3 executed!")
         return {'FINISHED'}
 

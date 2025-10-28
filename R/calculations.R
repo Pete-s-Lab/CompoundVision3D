@@ -255,15 +255,14 @@ find_neighbours <- function(df,
   require(progress)
   
   # # testing
-  # df = eye_L %>%
-  #   select(facet, ID, x,y,z, type) # %>%
-  #     slice(1:300)
+  # df = curr_facets
   # facet_size <- curr_facet_estimate
-  # neighbour_threshold = neighbour_threshold # 1.5
+  # neighbour_threshold = neighbour_threshold
   # cores = 12
-  # plot_file = file.path(facet_infos,
+  # plot_file = file.path(facet_infos, 
   #                       gsub("_facets_LMs_combined.csv", "_neighbour_and_size_data.pdf", curr_file))
   # verbose = TRUE
+  
   facet_size <- as.numeric(facet_size)
   cores <- as.numeric(cores)
   
