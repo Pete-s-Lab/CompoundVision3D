@@ -4,9 +4,12 @@
 #' are aligned to the global coordinate system X- and Y-axes.
 #'
 #' @param df A tibble containing coordinates and IDs.
-#' @param x_col The column containing x-coordinates of the points. Default: `x`.
-#' @param y_col The column containing y-coordinates of the points. Default: `y`.
-#' @param z_col The column containing z-coordinates of the points. Default: `z`.
+#' @param ref_x The column containing x-coordinates to be rotated. Default: `x`.
+#' @param ref_y The column containing y-coordinates to be rotated. Default: `y`.
+#' @param ref_z The column containing z-coordinates to be rotated. Default: `z`.
+#' @param data_x  The column containing the reference x-coordinates. Default: `x`.
+#' @param data_y  The column containing the reference y-coordinates. Default: `y`.
+#' @param data_z  The column containing the reference z-coordinates. Default: `z`.
 #' @param landmark_col The column that has to have cells following the 
 #' vector defined in `names`. Default: `ID`.
 #' @param names A character string defining the global axis to align to.
@@ -21,118 +24,134 @@
 #' @examples
 #' xxx: add example and change above descsriptionand parameters
 #'
-align_pointcloud <- function(
-    df,
-    x_col = "x", y_col = "y", z_col = "z",
-    landmark_col = "ID",
-    names = list(anterior = "anterior",
-                 posterior = "posterior",
-                 left = "left",
-                 right = "right"),
-    priority = "RL") { # "RL" (right–left first) or "AP" (anterior–posterior first)
-  # priority <- match.arg(priority)
+align_pointcloud <- function(df,
+                             ref_x = "x", 
+                             ref_y = "y", 
+                             ref_z = "z",           # reference coords (complete for ALL rows)
+                             data_x = "norm.x", 
+                             data_y = "norm.y", 
+                             data_z = "norm.z",     # second coord set (may have NAs anywhere)
+                             landmark_col = "ID",
+                             names = list(anterior = "anterior",
+                                          posterior = "posterior",
+                                          left = "left",
+                                          right = "right"),
+                             priority = "RL"){   # "RL" (right–left first) or "AP" (anterior–posterior first)
+  # # testing
+  # df = curr_point_cloud
+  # ref_x = "x"
+  # ref_y = "y"
+  # ref_z = "z"
+  # data_x = "norm.x"
+  # data_y = "norm.y"
+  # data_z = "norm.z"
+  # landmark_col = "ID"
+  # names = list(anterior = "anterior",
+  #              posterior = "posterior",
+  #              left = "left",
+  #              right = "right")
+  # priority = "AP"
   
-  # Helpers
-  cross3 <- function(a, b) c(
-    a[2]*b[3] - a[3]*b[2],
-    a[3]*b[1] - a[1]*b[3],
-    a[1]*b[2] - a[2]*b[1]
-  )
-  nrm <- function(v) {
-    s <- sqrt(sum(v^2))
-    if (s == 0) stop("Zero-length vector during normalization.")
-    v / s
-  }
-  
-  # Pull coords
-  xyz <- as.matrix(df[, c(x_col, y_col, z_col)])
-  if (!all(is.finite(xyz))) stop("Non-finite coordinates found.")
-  lab <- df[[landmark_col]]
-  
-  get_pt <- function(name) {
+  # helpers
+  cross3 <- function(a, b) c(a[2]*b[3]-a[3]*b[2], a[3]*b[1]-a[1]*b[3], a[1]*b[2]-a[2]*b[1])
+  nrm <- function(v) { s <- sqrt(sum(v^2)); if (s == 0) stop("Zero-length vector during normalization."); v / s }
+  get_idx <- function(name, lab) {
     idx <- which(lab == name)
     if (length(idx) != 1) stop(sprintf("Expected exactly one '%s' landmark, found %d.", name, length(idx)))
-    xyz[idx, , drop = FALSE]
+    idx
   }
-  A <- get_pt(names$anterior)
-  P <- get_pt(names$posterior)
-  L <- get_pt(names$left)
-  R <- get_pt(names$right)
   
-  # Translate so anterior is the origin (convenient for the y_anterior < y_right check)
-  Tvec <- as.numeric(A)
-  xyz_c <- sweep(xyz, 2, Tvec, "-")
+  # turn normal vectors into vector end points
+  df[, which(colnames(df) == data_x)] <- df[, which(colnames(df) == ref_x)] + 
+    df[, which(colnames(df) == data_x)]
+  df[, which(colnames(df) == data_y)] <- df[, which(colnames(df) == ref_y)] + 
+    df[, which(colnames(df) == data_y)]
+  df[, which(colnames(df) == data_z)] <- df[, which(colnames(df) == ref_z)] + 
+    df[, which(colnames(df) == data_z)]
   
-  # Base vectors
-  v_AP <- as.numeric(P - A)  # anterior -> posterior
-  v_RL <- as.numeric(L - R)  # right -> left (note: we choose R->L to match the final x_right < x_left)
-  # (If you prefer L->R, it also works; we'll enforce orientation later.)
+  lab <- df[[landmark_col]]
+  ref <- as.matrix(df[, c(ref_x, ref_y, ref_z)])
+  dat <- as.matrix(df[, c(data_x, data_y, data_z)])
   
-  # Build orthonormal axes based on priority
+  if (anyNA(ref))
+    stop("Reference coordinates contain NA values; they must be complete for all points.")
+  
+  iA <- get_idx(names$anterior, lab)
+  iP <- get_idx(names$posterior, lab)
+  iL <- get_idx(names$left,     lab)
+  iR <- get_idx(names$right,    lab)
+  
+  A <- ref[iA, , drop = FALSE]
+  P <- ref[iP, , drop = FALSE]
+  L <- ref[iL, , drop = FALSE]
+  R <- ref[iR, , drop = FALSE]
+  
+  # build transform from reference
+  Tvec <- as.numeric(A)                 # translate so anterior is origin
+  ref_c <- sweep(ref, 2, Tvec, "-")
+  
+  v_AP <- as.numeric(P - A)             # anterior -> posterior
+  v_RL <- as.numeric(L - R)             # right -> left (to satisfy x_right < x_left)
+  
   if (priority == "AP") {
-    # 1) Y along AP
     y_hat <- nrm(v_AP)
-    # 2) X from RL projected off Y
     v_RL_orthY <- v_RL - sum(v_RL * y_hat) * y_hat
-    if (sqrt(sum(v_RL_orthY^2)) == 0)
-      stop("Right–Left is colinear with Anterior–Posterior; cannot define X in AP-priority mode.")
+    if (sqrt(sum(v_RL_orthY^2)) == 0) stop("Right–Left is colinear with Anterior–Posterior in AP-priority mode.")
     x_hat <- nrm(v_RL_orthY)
-    # 3) Right-handed Z
     z_hat <- nrm(cross3(x_hat, y_hat))
-  } else { # priority == "RL"
-    # 1) X along RL
+  } else if (priority == "RL") {
     x_hat <- nrm(v_RL)
-    # 2) Y from AP projected off X
     v_AP_orthX <- v_AP - sum(v_AP * x_hat) * x_hat
-    if (sqrt(sum(v_AP_orthX^2)) == 0)
-      stop("Anterior–Posterior is colinear with Right–Left; cannot define Y in RL-priority mode.")
+    if (sqrt(sum(v_AP_orthX^2)) == 0) stop("Anterior–Posterior is colinear with Right–Left in RL-priority mode.")
     y_hat <- nrm(v_AP_orthX)
-    # 3) Right-handed Z
     z_hat <- nrm(cross3(x_hat, y_hat))
-  }
+  } else stop("priority must be 'RL' or 'AP'.")
   
-  # Rotation: rows are new axes (X, Y, Z) expressed in original basis
-  # p' = M %*% (p - A)
+  # rotation matrix; p' = M %*% (p - A)
   M <- rbind(x_hat, y_hat, z_hat)
   
-  # Apply rotation
-  xyz_r <- t(M %*% t(xyz_c))
-  
-  # --- Enforce required orientations ---------------------------------------
-  
-  # 1) Enforce x_right < x_left
+  # enforce orientation on reference landmarks
   R_rot <- as.numeric(M %*% as.numeric(R - A))
   L_rot <- as.numeric(M %*% as.numeric(L - A))
   if (!(R_rot[1] < L_rot[1])) {
-    # Flip X axis
-    M[1, ] <- -M[1, ]
-    xyz_r[, 1] <- -xyz_r[, 1]
-    # update rotated landmarks for subsequent checks
-    R_rot[1] <- -R_rot[1]
-    L_rot[1] <- -L_rot[1]
+    M[1, ] <- -M[1, ]; R_rot[1] <- -R_rot[1]; L_rot[1] <- -L_rot[1]
   }
-  
-  # 2) Enforce y_anterior < y_right
-  # After translation, anterior is at (0,0,0) so condition is simply 0 < y(R)
   if (!(0 < R_rot[2])) {
-    # Flip Y (and Z to keep right-handedness)
-    M[2, ] <- -M[2, ]
-    M[3, ] <- -M[3, ]
-    xyz_r[, 2] <- -xyz_r[, 2]
-    xyz_r[, 3] <- -xyz_r[, 3]
+    M[2, ] <- -M[2, ]; M[3, ] <- -M[3, ]  # keep right-handedness
   }
   
-  # --------------------------------------------------------------------------
+  # apply to BOTH coordinate sets
+  # reference (complete): rotate all rows
+  ref_rot <- t(M %*% t(ref_c))
   
+  # data (may have NA anywhere): only rotate complete triplets
+  dat_c <- sweep(dat, 2, Tvec, "-")
+  dat_rot <- matrix(NA_real_, nrow = nrow(dat_c), ncol = 3)
+  valid <- stats::complete.cases(dat_c)
+  if (any(valid)) dat_rot[valid, ] <- t(M %*% t(dat_c[valid, , drop = FALSE]))
+  
+  # write back
   out <- df
-  out[[x_col]] <- xyz_r[, 1]
-  out[[y_col]] <- xyz_r[, 2]
-  out[[z_col]] <- xyz_r[, 3]
+  out[[ref_x]]  <- ref_rot[, 1]; out[[ref_y]] <- ref_rot[, 2]; out[[ref_z]] <- ref_rot[, 3]
+  out[[data_x]] <- dat_rot[, 1]; out[[data_y]] <- dat_rot[, 2]; out[[data_z]] <- dat_rot[, 3]
   
+  # turn vector end points into normal vectors
+  out[, which(colnames(out) == data_x)] <- out[, which(colnames(out) == data_x)] - 
+    out[, which(colnames(out) == ref_x)]
+  out[, which(colnames(out) == data_y)] <- out[, which(colnames(out) == data_y)] - 
+    out[, which(colnames(out) == ref_y)]
+  out[, which(colnames(out) == data_z)] <- out[, which(colnames(out) == data_z)] -
+    out[, which(colnames(out) == ref_z)]
+  
+  
+  # metadata
   attr(out, "rotation_matrix_rows_xyz") <- M
   attr(out, "translation_applied") <- Tvec
   attr(out, "priority") <- priority
-  out
+  attr(out, "reference_columns") <- c(ref_x, ref_y, ref_z)
+  attr(out, "data_columns")      <- c(data_x, data_y, data_z)
+  
+  return(out)
 }
 
 

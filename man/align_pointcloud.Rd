@@ -6,9 +6,12 @@
 \usage{
 align_pointcloud(
   df,
-  x_col = "x",
-  y_col = "y",
-  z_col = "z",
+  ref_x = "x",
+  ref_y = "y",
+  ref_z = "z",
+  data_x = "norm.x",
+  data_y = "norm.y",
+  data_z = "norm.z",
   landmark_col = "ID",
   names = list(anterior = "anterior", posterior = "posterior", left = "left", right =
     "right"),
@@ -18,11 +21,17 @@ align_pointcloud(
 \arguments{
 \item{df}{A tibble containing coordinates and IDs.}
 
-\item{x_col}{The column containing x-coordinates of the points. Default: \code{x}.}
+\item{ref_x}{The column containing x-coordinates to be rotated. Default: \code{x}.}
 
-\item{y_col}{The column containing y-coordinates of the points. Default: \code{y}.}
+\item{ref_y}{The column containing y-coordinates to be rotated. Default: \code{y}.}
 
-\item{z_col}{The column containing z-coordinates of the points. Default: \code{z}.}
+\item{ref_z}{The column containing z-coordinates to be rotated. Default: \code{z}.}
+
+\item{data_x}{The column containing the reference x-coordinates. Default: \code{x}.}
+
+\item{data_y}{The column containing the reference y-coordinates. Default: \code{y}.}
+
+\item{data_z}{The column containing the reference z-coordinates. Default: \code{z}.}
 
 \item{landmark_col}{The column that has to have cells following the
 vector defined in \code{names}. Default: \code{ID}.}

@@ -346,3 +346,43 @@ rotate_rgl_to_vector <- function(direction_vector) {
   # Apply the rotation
   par3d(userMatrix = userMatrix)
 }
+
+#' Calculate and plot facet vectors
+#'
+#' xxx
+#'
+#' @param df A `tibble` with the data columns (`x,y,z`) and the normal columns 
+#' (`norm.x,norm.y,norm.z`)
+#' @param vector_length_multipler a `numeric` value to change the length of the 
+#' plotted vecots. Default: `3`.
+#' 
+#' @return xxx
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above parameter description
+#' 
+make_segments <- function(df,
+                          vector_length_multipler = 3){
+  x_start <- df %>% pull(x)
+  y_start <- df %>% pull(y)
+  z_start <- df %>% pull(z)
+  
+  x_end <- df %>% pull(x) + df %>%
+    pull(norm.x)*vector_length_multipler*(mean(df %>% pull(size), na.rm = TRUE))
+  y_end <- df %>% pull(y) + df %>%
+    pull(norm.y)*vector_length_multipler*(mean(df %>% pull(size), na.rm = TRUE))
+  z_end <- df %>% pull(z) + df %>%
+    pull(norm.z)*vector_length_multipler*(mean(df %>% pull(size), na.rm = TRUE))
+  
+  # Combine start and end points into a single vector
+  segments <- cbind(x_start, y_start, z_start, x_end, y_end, z_end)
+  
+  segments3d(x=as.vector(t(segments[,c(1,4)])),
+             y=as.vector(t(segments[,c(2,5)])),
+             z=as.vector(t(segments[,c(3,6)])),
+             col = viridis(n=6)[4],
+             lwd=5)
+  
+  segments
+}

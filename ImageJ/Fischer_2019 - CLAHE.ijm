@@ -4,7 +4,7 @@ blocksize = 127;
 histogram_bins = 256;
 maximum_slope = 3;
 mask = "*None*";
-fast = true;
+fast = false;
 process_as_composite = true;
  
 getDimensions( width, height, channels, slices, frames );
