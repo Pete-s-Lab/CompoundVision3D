@@ -39,7 +39,7 @@ STL_triangles <- function(file_name,
   
   # load STL file as lines
   if(verbose == TRUE){
-    print(paste0("Importing ", file_name, "..." ))
+    cat("Importing", file_name, "...\n")
   }
   file_in <- file(file_name, open = "r")
   lines <- readLines(file_in)
@@ -50,12 +50,12 @@ STL_triangles <- function(file_name,
   # convert character vector lines to tibble
   lines_tbl <- as_tibble(lines)
   if(verbose == TRUE){
-    print(paste0("Converting to tibble with ", nrow(lines_tbl), " lines ..."))
+    cat("Converting to tibble with", nrow(lines_tbl), "lines ...\n")
   }
   
   # get coordinates of triangle vertices from lines_tbl
   if(verbose == TRUE){
-    print("Extracting vertex coordinates of triangles...")
+    cat("Extracting vertex coordinates of triangles...\n")
   }
   
   vertex_coords_triangles <- lines_tbl %>% 
@@ -75,7 +75,7 @@ STL_triangles <- function(file_name,
   
   # get vertex coordinates of triangle centers
   if(verbose == TRUE){
-    print(paste0("Extracting coordinates of triangle centers..."))
+    cat("Extracting coordinates of triangle centers...\n")
   }
   vertex_coords_triangle_centers <- vertex_coords_triangles %>% 
     mutate("ID" = IDs) %>% 
@@ -89,7 +89,7 @@ STL_triangles <- function(file_name,
   
   # get normals of triangles
   if(verbose == TRUE){
-    print(paste0("Extracting triangle normals..."))
+    cat("Extracting triangle normals...\n")
   }
   
   normals <-  lines_tbl %>% 
@@ -105,7 +105,7 @@ STL_triangles <- function(file_name,
     ungroup()
   
   if(verbose == TRUE){
-    print(paste0(" Found ", nrow(tri_centers_normals), " triangle coordinates."))
+    cat("Found", nrow(tri_centers_normals), "triangle coordinates.\n")
   }
   
   if(plot_results == TRUE){
@@ -137,7 +137,7 @@ STL_triangles <- function(file_name,
   #           col = "red")
   # }
   if(verbose == TRUE){
-    print("done!")
+    cat("done!\n")
   }
   return(tri_centers_normals)
 }

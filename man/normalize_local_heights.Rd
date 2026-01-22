@@ -10,6 +10,7 @@ normalize_local_heights(
   column_to_normalize = "local_height",
   cores = 12,
   plot_file = NULL,
+  plot_results = TRUE,
   verbose = FALSE
 )
 }

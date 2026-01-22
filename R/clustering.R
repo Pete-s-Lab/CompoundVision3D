@@ -4,13 +4,13 @@
 #'
 #' find good threshold - choose x,y, x,z or other dimension combinations to get reasonable plots
 #' @export
-find_threshold <- function(df = local_heights,
+find_threshold <- function(df,
                            column1 = NULL,
                            column2 = NULL,
                            height_column,
                            min_threshold = 1,
                            max_treshold = 2.5, 
-                           trials = 12,
+                           trials = 9,
                            plot_file = NULL){
   
   # if undefined, take the columns with the highest ranges for plotting
@@ -25,7 +25,7 @@ find_threshold <- function(df = local_heights,
     column2 <- names(sort(column_ranges))[3]
   }
   
-  par(mfrow=c(3,4))
+  par(mfrow=c(3,3))
   for(curr_thrsh in round(seq(min_threshold, max_treshold, length.out = trials),2)){
     df_tmp <- df %>% 
       filter(!!as.symbol(height_column) >= curr_thrsh) 
@@ -42,7 +42,7 @@ find_threshold <- function(df = local_heights,
   if(!is.null(plot_file)){
     pdf(file = plot_file, # , today()
         onefile = TRUE, width = (21.0-4)/1.5, height = (((21.0-4)))*3/4)
-    par(mfrow=c(3,4))
+    par(mfrow=c(3,3))
     for(curr_thrsh in round(seq(min_threshold, max_treshold, length.out = trials),2)){
       df_tmp <- local_heights %>% 
         filter(!!as.symbol(height_column) >= curr_thrsh) 
@@ -232,11 +232,7 @@ find_facet_canidates <- function(df,
     # Plot the obtained dendrogram
     cat("select minimum and maximum cut-off points on y axis for first trial.", "\n")
     cat("Only select two points, the script will continue automatically.", "\n")
-    plot(hc1, cex = 0.6, hang = -1, 
-         xlab = "", 
-         main = "Hierarchical Clustering", 
-         sub = "",
-         labels = FALSE)
+    
     h.cutoff.df <- locator(type = "n", n=2)
     h_min = h.cutoff.df$y[1]
     h_max = h.cutoff.df$y[2]
@@ -271,14 +267,46 @@ find_facet_canidates <- function(df,
   ommatidia.no.df <- ommatidia.no.df %>%
     mutate(ommatidia.no.diff = ommatidia.no - lag(ommatidia.no, default = ommatidia.no[2]))
   
-  par(mfrow=c(2,1))
+  par(mfrow=c(3,1))
+  
+  # plot dendrogram
+  x_total <- length(hc1$order)
+  y_total <- max(hc1$height)
+  
+  xlim_frac <- c(0, x_total / 4)
+  ylim_frac <- c(0, y_total / 5)
+  
+  op <- par(mar = c(1, 4, 3, 2) + 0.1)  # bottom, left, top, right par(mar = c(1, 4, 3, 2) + 0.1)
+  plot(
+    as.dendrogram(hc1),
+    cex = 0.1,
+    xlab = "",
+    main = "Zoom of hierarchical clustering dendrogram",
+    sub = "",
+    xlim = xlim_frac,
+    ylim = ylim_frac,
+    leaflab = "none"
+  )
+  par(op)
+  
+  abline(a=5, b=0, col="blue", lty=2)
+  abline(a=20, b=0, col="blue", lty=2)
+  abline(a=16, b=0, col="blue")
+  
   plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no,
        xlab = "clustering cut-off value",
        ylab = "resulting facet number")
+  abline(v=h_min, col="blue", lty=2)
+  abline(v=h_max, col="blue", lty=2)
+  abline(v=h_final, col="blue")
+  
   plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no.diff, type="l",
        xlab = "clustering cut-off value",
        ylab = "delta facet number")
   abline(a=0, b=0, col="red", lty=2)
+  abline(v=h_min, col="blue", lty=2)
+  abline(v=h_max, col="blue", lty=2)
+  abline(v=h_final, col="blue")
   par(mfrow=c(1,1))
   
   if(is.null(h_final)){
@@ -347,15 +375,35 @@ find_facet_canidates <- function(df,
     # widths = c(2, 1))     # Widths of the two columns
     # layout.show(4)
     # tree
-    plot(hc1, 
-         cex = 0.6, 
-         hang = -1, 
-         xlab = paste0("Cutoff-values (blue); ", round(h_min,2), " & ", round(h_max,2)), 
-         main = "Hierarchical Clustering", 
-         sub = "",
-         labels = FALSE)
-    abline(a=h_min, b=0, col="blue", lty=2)
-    abline(a=h_max, b=0, col="blue", lty=2)
+    # plot(hc1, 
+    #      cex = 0.6, 
+    #      hang = -1, 
+    #      xlab = paste0("Cutoff-values (blue); ", round(h_min,2), " & ", round(h_max,2)), 
+    #      main = "Hierarchical Clustering", 
+    #      sub = "",
+    #      labels = FALSE,
+    #      xlim = c(0, 10))
+    # abline(a=h_min, b=0, col="blue", lty=2)
+    # abline(a=h_max, b=0, col="blue", lty=2)
+    # abline(v=h_final, col="blue")
+    
+    # plot dendrogram
+    op <- par(mar = c(1, 4, 3, 2) + 0.1)  # bottom, left, top, right par(mar = c(1, 4, 3, 2) + 0.1)
+    plot(
+      as.dendrogram(hc1),
+      cex = 0.1,
+      xlab = "",
+      main = "Zoom of hierarchical clustering dendrogram",
+      sub = "",
+      xlim = xlim_frac,
+      ylim = ylim_frac,
+      leaflab = "none"
+    )
+    par(op)
+    
+    abline(a=5, b=0, col="blue", lty=2)
+    abline(a=20, b=0, col="blue", lty=2)
+    abline(a=16, b=0, col="blue")
     
     
     # curve and differences
@@ -363,12 +411,12 @@ find_facet_canidates <- function(df,
          xlab = "Cutoff value",
          ylab = "facet number") # , ylim = c(0,max(ommatidia.no.df$ommatidia.no))
     lines(x=rep(h_final$x, 2), y = c(min(ommatidia.no.df$ommatidia.no), max(ommatidia.no.df$ommatidia.no)),
-          col = "blue", lty=2)
+          col = "blue")
     plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no.diff, type="l",
          xlab = "Cutoff value",
          ylab = "Delta facet number")
     lines(x=rep(h_final$x, 2), y = c(min(ommatidia.no.df$ommatidia.no.diff), max(ommatidia.no.df$ommatidia.no.diff)),
-          col = "blue", lty=2)
+          col = "blue")
     abline(a=0, b=0, col="red", lty=2)
     
     # Histogram
@@ -378,7 +426,7 @@ find_facet_canidates <- function(df,
     break_size <- hist.plot$breaks[2]
     hist_x <- hist.plot$breaks[which(hist.plot$counts == max(hist.plot$counts))[1]] + break_size/2
     lines(x = rep(hist_x, 2), y=c(0, (max(hist.plot$counts) + 0.05 * max(hist.plot$counts))),
-          col = "blue", lty = 2)
+          col = "blue")
     # par(mfrow=c(1,1))
     dev.off()
   }

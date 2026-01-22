@@ -16,12 +16,12 @@
 #' @examples
 #' # xxx: add example
 #'
-get_local_heights <- function(df,
-                              search_diam,
-                              cores = 1,
-                              log_scale = TRUE,
-                              plot_file = NULL,
-                              verbose = FALSE){
+calculate_local_heights <- function(df,
+                                    search_diam,
+                                    cores = 1,
+                                    log_scale = TRUE,
+                                    plot_file = NULL,
+                                    verbose = FALSE){
   
   # load package for multi-core
   require(doParallel)
@@ -51,7 +51,7 @@ get_local_heights <- function(df,
   }
   
   if(verbose == TRUE){
-    print("Starting analyses on cluster...")
+    cat("Starting analyses on cluster...\n")
     start_time <- Sys.time()
   }
   
@@ -60,7 +60,7 @@ get_local_heights <- function(df,
   
   
   if(verbose == TRUE){
-    print(paste0("Calculating local heights for all ", nrow(df), " vertices..."))
+    cat("Calculating local heights for all", nrow(df), "vertices...\n")
   }
   local_heights <- foreach(i = 1:nrow(df),
                            .combine=rbind, .packages=c('dplyr', 'geometry')) %dopar% {
@@ -124,13 +124,13 @@ get_local_heights <- function(df,
   
   
   if(verbose == TRUE){
-    print("Cluster analysis finished.")
+    cat("Cluster analysis finished.\n")
     end_time <- Sys.time()
-    print(end_time - start_time)
+    cat("Time difference:", end_time - start_time, "\n")
   }
   
   if(verbose == TRUE){
-    print(paste0("Adding quantile-filtered and logarhitmic scales..."))
+    cat("Adding quantile-filtered and logarhitmic scales...\n")
   }
   # add color values for RAW local heights
   local_height_cols_raw <- get_height_colors(heights = df$local_height)
@@ -158,7 +158,7 @@ get_local_heights <- function(df,
   
   if(!is.null(plot_file)){
     if(verbose == TRUE){
-      print(paste0("2D-plotting to ", plot_file, "..."))
+      cat("2D-plotting to ", plot_file, "...\n")
     }
     # plot height colours for raw, filtered and log-transformed local heights
     # dev.print(pdf, file = file.path(df_folder, gsub("csv$", "pdf", curr_filename_out)),
@@ -187,7 +187,7 @@ get_local_heights <- function(df,
   }
   
   if(verbose == TRUE){
-    print("All done!")
+    cat("All done!\n")
   }
   
   return(df)
@@ -291,6 +291,7 @@ normalize_local_heights <- function(df,
                                     column_to_normalize = "local_height",
                                     cores = 12,
                                     plot_file = NULL,
+                                    plot_results = TRUE,
                                     verbose = FALSE){
   
   # # # testing
@@ -309,15 +310,15 @@ normalize_local_heights <- function(df,
   # convert search_diam to numeric if necessary
   normalize_diam <- as.numeric(normalize_diam)
   
-  if(!is.null(plot_file)){
-    require(rgl)
-  }
+  # if(!is.null(plot_file)){
+  require(rgl)
+  # }
   
   require(forceR)
   require(doParallel)
   
   # dplyr NULLs
-  x <- y <- z <- value <- value.1 <- value.2 <- row_number <- norm.x <- 
+  x <- y <- z <- value <- value.1 <- value.2 <- row_number <- norm.x <-
     norm.y <- norm.z <- i <- n <- local_height <- local_heights_quantiles_normalized <- NULL
   
   # # plot eye in 'SEM colors'
@@ -328,7 +329,7 @@ normalize_local_heights <- function(df,
   #        aspect = "iso",
   #        size=8)
   
-  df <- df %>% 
+  df <- df %>%
     mutate(n=row_number())
   
   # limet number of rows for one analsis to get reasonable calulation times
@@ -337,7 +338,7 @@ normalize_local_heights <- function(df,
   
   if(verbose == TRUE){
     if(length(starts) > 1){
-      print(paste0("Splitting analysis into ", length(starts), " parts."))
+      cat("Splitting analysis into ", length(starts), " parts.\n")
     }
   }
   
@@ -346,7 +347,7 @@ normalize_local_heights <- function(df,
                               local_heights_quantiles_normalized=numeric())
   
   if(verbose == TRUE){
-    print("Starting analyses on cluster...")
+    cat("Starting analyses on cluster...\n")
     start_time <- Sys.time()
   }
   
@@ -360,11 +361,11 @@ normalize_local_heights <- function(df,
     # print(paste0(s, " to ", e))
     i=s
     curr_df_normalized_raw <- foreach(i = s:e,# nrow(df)
-                                      .combine=rbind, 
+                                      .combine=rbind,
                                       .packages=c('dplyr', 'forceR')) %dopar% {
                                         
-                                        curr_vertex <- df %>% 
-                                          slice(i) %>% 
+                                        curr_vertex <- df %>%
+                                          slice(i) %>%
                                           select(x,y,z)
                                         
                                         
@@ -372,14 +373,14 @@ normalize_local_heights <- function(df,
                                         #           col="blue",
                                         #           radius = 10)
                                         
-                                        curr_facetsized_ROI <- df %>% 
+                                        curr_facetsized_ROI <- df %>%
                                           filter(x >= curr_vertex$x - normalize_diam,
                                                  x <= curr_vertex$x + normalize_diam,
                                                  y >= curr_vertex$y - normalize_diam,
                                                  y <= curr_vertex$y + normalize_diam,
                                                  z >= curr_vertex$z - normalize_diam,
-                                                 z <= curr_vertex$z + normalize_diam) %>% 
-                                          select(n,x,y,z,one_of(column_to_normalize)) %>% 
+                                                 z <= curr_vertex$z + normalize_diam) %>%
+                                          select(n,x,y,z,one_of(column_to_normalize)) %>%
                                           rename(col_to_norm = 5) # rename fith column
                                         
                                         # points3d(curr_facetsized_ROI %>%
@@ -387,7 +388,7 @@ normalize_local_heights <- function(df,
                                         #          col="red", size=11)
                                         
                                         # get local heights values and filter out outliers
-                                        curr_local_heights <- curr_facetsized_ROI %>% 
+                                        curr_local_heights <- curr_facetsized_ROI %>%
                                           select(n, col_to_norm)
                                         
                                         if(nrow(curr_local_heights)>1){
@@ -396,7 +397,7 @@ normalize_local_heights <- function(df,
                                           curr_Q_min <- curr_Q[1]
                                           curr_Q_max <- curr_Q[2]
                                           
-                                          curr_local_heights <- curr_local_heights %>% 
+                                          curr_local_heights <- curr_local_heights %>%
                                             mutate(local_heights_quantiles = case_when(col_to_norm < curr_Q_min ~ curr_Q_min,
                                                                                        col_to_norm > curr_Q_max ~ curr_Q_max,
                                                                                        TRUE ~ col_to_norm),
@@ -406,20 +407,20 @@ normalize_local_heights <- function(df,
                                           # hist(curr_local_heights$local_heights_quantiles, breaks = 7)
                                           # hist(curr_local_heights$local_heights_quantiles_normalized, breaks = 7)
                                           
-                                          tmp <- curr_local_heights %>% 
-                                            select(n,local_heights_quantiles_normalized) # %>% 
-                                          # mutate(iteration = i)# %>% 
-                                          # rename_at(vars(all_of(col.from)), ~col.to) 
+                                          tmp <- curr_local_heights %>%
+                                            select(n,local_heights_quantiles_normalized) # %>%
+                                          # mutate(iteration = i)# %>%
+                                          # rename_at(vars(all_of(col.from)), ~col.to)
                                         }
                                       }
-    if(verbose == TRUE){
-      print("merging data...")
-    }
+    # if(verbose == TRUE){
+    #   print("merging data...")
+    # }
     
     df_normalized_raw <- rbind(df_normalized_raw, curr_df_normalized_raw)
     
     if(verbose == TRUE){
-      print(paste0(round(k*100/length(starts),2), "%"))
+      cat(round(k*100/length(starts),2), "%\n")
       # print("*******")
     }
   }
@@ -428,32 +429,32 @@ normalize_local_heights <- function(df,
   stopImplicitCluster()
   
   if(verbose == TRUE){
-    print("Multi-threaded analysis finished.")
+    cat("Multi-threaded analysis finished.\n")
     end_time <- Sys.time()
-    print(end_time - start_time)
+    cat(end_time - start_time, "\n")
   }
   
   if(verbose == TRUE){
-    print(paste0("Summarizing ", nrow(df_normalized_raw), " results..."))
+    cat("Summarizing ", nrow(df_normalized_raw), " results...\n")
   }
   
   # calculate means per facet - i.e. row = n
-  df_normalized_summarized <- df_normalized_raw %>% 
-    group_by(n) %>% 
+  df_normalized_summarized <- df_normalized_raw %>%
+    group_by(n) %>%
     summarise(local_height_norm = mean(local_heights_quantiles_normalized ))
   
-  df_fin <- df %>% 
-    left_join(df_normalized_summarized, by = "n") %>% 
+  df_fin <- df %>%
+    left_join(df_normalized_summarized, by = "n") %>%
     select(-n)
   
   # fill NA values (points where no other points were int the search radius around them) with median value
-  df_fin <- df_fin %>% 
+  df_fin <- df_fin %>%
     mutate(local_height_norm = ifelse(is.na(local_height_norm), median(local_height_norm, na.rm=TRUE), local_height_norm))
   
   # hist(df_fin$local_height_norm)
   
   if(verbose == TRUE){
-    print(paste0("Adding quantile-filtered and logarithmic scales..."))
+    cat("Adding quantile-filtered and logarithmic scales...\n")
   }
   
   local_height_cols_raw_norm <- get_height_colors(heights = df_fin$local_height_norm)
@@ -475,7 +476,7 @@ normalize_local_heights <- function(df,
   
   if(!is.null(plot_file)){
     if(verbose == TRUE){
-      print(paste0("2D-plotting to ", plot_file, "..."))
+      cat("2D-plotting to", plot_file, "...\n")
     }
     # plot height colours for raw, filtered and log-transformed local heights
     # dev.print(pdf, file = file.path(df_folder, gsub("csv$", "pdf", curr_filename_out)),
@@ -510,36 +511,36 @@ normalize_local_heights <- function(df,
     
     # plot eye in 'SEM colors'
     close3d()
-    plot3d(df_fin %>% 
-             select(x,y,z), 
-           col = df_fin %>% 
+    plot3d(df_fin %>%
+             select(x,y,z),
+           col = df_fin %>%
              pull(local_height_col),
            aspect = "iso",
            size=3)
     
-    points3d(df_fin %>% 
-               select(x,y,z) %>% 
-               mutate(x = x+max(x)+0.5*diff(range(x))), 
-             col = df_fin %>% 
-               pull(local_height_log_col), 
+    points3d(df_fin %>%
+               select(x,y,z) %>%
+               mutate(x = x+max(x)+0.5*diff(range(x))),
+             col = df_fin %>%
+               pull(local_height_log_col),
              aspect = "iso",
              size=3)
     
     
-    points3d(df_fin %>% 
-               select(x,y,z) %>% 
-               mutate(z = z-max(z)-0.5*diff(range(z))), 
-             col = df_fin %>% 
-               pull(local_height_norm_col), 
+    points3d(df_fin %>%
+               select(x,y,z) %>%
+               mutate(z = z-max(z)-0.5*diff(range(z))),
+             col = df_fin %>%
+               pull(local_height_norm_col),
              aspect = "iso",
              size=3)
     
-    points3d(df_fin %>% 
-               select(x,y,z) %>% 
+    points3d(df_fin %>%
+               select(x,y,z) %>%
                mutate(x = x+max(x)+0.5*diff(range(x)),
-                      z = z-max(z)-0.5*diff(range(z))), 
-             col = df_fin %>% 
-               pull(local_height_log_norm_col), 
+                      z = z-max(z)-0.5*diff(range(z))),
+             col = df_fin %>%
+               pull(local_height_log_norm_col),
              aspect = "iso",
              size=3)
     
@@ -554,7 +555,7 @@ normalize_local_heights <- function(df,
     
     # rotate view roughly to look at eye
     # Step 1: Calculate the mean direction
-    mean_vector <- colMeans(df_fin %>% 
+    mean_vector <- colMeans(df_fin %>%
                               select(norm.x, norm.y, norm.z))
     mean_direction <- mean_vector / sqrt(sum(mean_vector^2))  # Normalize
     
@@ -577,13 +578,14 @@ normalize_local_heights <- function(df,
     # par3d(userMatrix = rotate3d(par3d("userMatrix"), angle1, 0, 1, 0))
     
     rgl.snapshot(plot_file_3D)
-    close3d()
+    
+    if(plot_results != TRUE){
+      close3d()
+    }
   }
   
-  
-  
   if(verbose == TRUE){
-    print("Normalization done!")
+    cat("Normalization done!\n")
   }
   
   return(df_fin)

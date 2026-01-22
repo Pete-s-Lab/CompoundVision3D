@@ -5,13 +5,13 @@
 \title{Find threshold for agglomerative clustering}
 \usage{
 find_threshold(
-  df = local_heights,
+  df,
   column1 = NULL,
   column2 = NULL,
   height_column,
   min_threshold = 1,
   max_treshold = 2.5,
-  trials = 12,
+  trials = 9,
   plot_file = NULL
 )
 }
