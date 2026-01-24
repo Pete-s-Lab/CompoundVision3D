@@ -316,6 +316,7 @@ normalize_local_heights <- function(df,
   
   require(forceR)
   require(doParallel)
+  require(dplyr)
   
   # dplyr NULLs
   x <- y <- z <- value <- value.1 <- value.2 <- row_number <- norm.x <-

@@ -12,9 +12,7 @@
 #'
 convert_STL_to_tibble <- function(file_name,
                                   stl_folder,
-                                  triangle_centers_and_normals_folder,
                                   plot_results = TRUE,
-                                  write_results_to_file = TRUE,
                                   verbose = TRUE){
   # # testing
   # file_name = file_name
@@ -30,14 +28,8 @@ convert_STL_to_tibble <- function(file_name,
   require(rgl)
   # fast csv wrighting and reading
   require(readr)
-  # file moving
-  require(filesstrings)
-  # read and write excel files
-  require(xlsx)
-  # print loop progress with print_progress()
-  require(forceR)
-  # load tidyverse for its various conveniences
-  require(tidyverse)
+  # dplyr for tibble handling and pipe
+  require(dplyr)
   
   # convert mesh data
   
@@ -48,11 +40,11 @@ convert_STL_to_tibble <- function(file_name,
   
   
   # Import and Clean STL and export to csv with coordinates and normals --------
-  tri_centers_normals <- STL_triangles(file_name = file_name,
+  df <- STL_triangles(file_name = file_name,
                                        verbose = verbose)
   
   # multiply by 1000 to account for scaling in Blender
-  tri_centers_normals <- tri_centers_normals %>%
+  df <- df %>%
     mutate(x = x * 1000,
            y = y * 1000,
            z = z * 1000,
@@ -62,7 +54,7 @@ convert_STL_to_tibble <- function(file_name,
   
   if(plot_results == TRUE){
     # plot imported eye data
-    plot3d(tri_centers_normals %>% 
+    plot3d(df %>% 
              select(x,y,z),
            size = 5, 
            aspect = "iso")
@@ -70,21 +62,21 @@ convert_STL_to_tibble <- function(file_name,
     # draw vectors on eye to see if they point in the right directions
     vec.mult <- .01
     
-    x_start <- tri_centers_normals %>% 
+    x_start <- df %>% 
       select(x)
-    y_start <- tri_centers_normals %>% 
+    y_start <- df %>% 
       select(y)
-    z_start <- tri_centers_normals %>% 
+    z_start <- df %>% 
       select(z)
     
-    x_end <- tri_centers_normals %>% 
-      pull(x) + tri_centers_normals %>% 
+    x_end <- df %>% 
+      pull(x) + df %>% 
       pull(norm.x) * vec.mult
-    y_end <- tri_centers_normals %>% 
-      pull(y) + tri_centers_normals %>% 
+    y_end <- df %>% 
+      pull(y) + df %>% 
       pull(norm.y) * vec.mult
-    z_end <- tri_centers_normals %>% 
-      pull(z) + tri_centers_normals %>% 
+    z_end <- df %>% 
+      pull(z) + df %>% 
       pull(norm.z) * vec.mult
     
     
@@ -98,20 +90,8 @@ convert_STL_to_tibble <- function(file_name,
                col = "purple")
   }
   
-  if(write_results_to_file == TRUE){
-    # define tri_centers_normals file name
-    tri_centers_normals_file <- gsub("_surface.stl", "_tri_centers_normals.csv", basename(file_name))
-    
-    # write csv with triangle centers and normals
-    write_csv(tri_centers_normals, 
-              file.path(triangle_centers_and_normals_folder, tri_centers_normals_file),
-              progress = FALSE)
-    
-    if(verbose == TRUE) cat("STL conversion done and saved to", tri_centers_normals_file)
-  }
-  
   if(verbose == TRUE) cat("All done!")
-  return(tri_centers_normals)
+  return(df)
 }
 
 
@@ -128,72 +108,46 @@ convert_STL_to_tibble <- function(file_name,
 #' xxx: add example and change above descsriptionand parameters
 #'
 
-find_local_heights <- function(file_name,
-                               triangle_centers_and_normals_folder,
-                               local_heights_folder,
-                               local_heights_folder_normalized,
+find_local_heights <- function(df,
                                curr_facet_estimate = 14,
                                cores,
-                               plot_results = TRUE,
-                               write_results_to_file = TRUE,
+                               plot_results = FALSE,
+                               plot_file = NULL,
                                verbose = TRUE){
   # # testing
-  # triangle_centers_and_normals_folder = triangle_centers_and_normals_folder
-  # local_heights_folder = local_heights_folder
   # curr_facet_estimate = 14
   # cores = 12
   # plot_results = TRUE
-  # write_results_to_file = TRUE
+  # plot_file = gsub("csv$", "pdf", file_name_out)
   # verbose = TRUE
   
   # Dependencies ------------------------------------------------------------
   # 3D plotting
   require(rgl)
-  
-  # fast csv wrighting and reading
-  require(readr)
-  
-  # file moving
-  require(filesstrings)
-  
-  # read and write excel files
-  require(xlsx)
-  
-  # print loop progress with print_progress()
-  require(forceR)
-  
-  # load tidyverse for its various conveniences
-  require(tidyverse)
-  
-  if (verbose == TRUE) cat(file_name, "\n")
-  
-  # get infos from file name
-  curr_CV <- gsub("^CV(\\d+)_.+$", "\\1", basename(file_name))
-  curr_eye <- gsub("^.+eye(\\d+)_.+$", "\\1", basename(file_name))
-  
-  # define new filename
-  file_name_out <- file.path(local_heights_folder, gsub("_tri_centers_normals.csv", "_local_heights.csv", basename(file_name)))
+  # dplyr for tibble handling and pipe
+  require(dplyr)
   
   if (verbose == TRUE) cat("Adding local heights according to facet size estimate (", curr_facet_estimate, ")...\n")
   
-  # load csv file
-  tri_centers_normals <- read_csv(file_name,
-                                  show_col_types = FALSE,
-                                  progress  = FALSE)
+  # # load csv file
+  # df <- read_csv(file_name,
+  #                                 show_col_types = FALSE,
+  #                                 progress  = FALSE)
+  # tri_centers_normals <- df
   
-  # add local height to tri_centers_normals
+  # add local height to df
   #   This is a multi-threaded but may still take a while. Define number of cores to suit your system (cores = n).
   
-  if(write_results_to_file == TRUE){
-    local_heights <- calculate_local_heights(df = tri_centers_normals,
-                                             search_diam = curr_facet_estimate*3,
-                                             cores = cores,
-                                             plot_file = gsub("csv$", "pdf", file_name_out),
-                                             verbose = verbose)
+  if(is.null(plot_file)){
+  df <- calculate_df(df = df,
+                                           search_diam = curr_facet_estimate*3,
+                                           cores = cores,
+                                           verbose = verbose)
   } else{
-    local_heights <- calculate_local_heights(df = tri_centers_normals,
+    df <- calculate_df(df = df,
                                              search_diam = curr_facet_estimate*3,
                                              cores = cores,
+                                             plot_file = plot_file,
                                              verbose = verbose)
   }
   
@@ -201,44 +155,34 @@ find_local_heights <- function(file_name,
   
   # plot eye in 'SEM colors'
   if(plot_results == TRUE){
-    plot3d(local_heights %>% 
+    plot3d(df %>% 
              select(x,y,z), 
-           col = local_heights %>% 
+           col = df %>% 
              pull(local_height_log_col), 
            aspect = "iso",
            size=4)
   }
   
-  # write local_heights as csv
-  if(write_results_to_file == TRUE){
-    write_csv(local_heights,
-              file_name_out,
-              progress = FALSE)
-  }
-  if (verbose == TRUE) cat("Local Heights calculated for CV", curr_CV, ".\n")
+  # # write df as csv
+  # if(write_results_to_file == TRUE){
+  #   write_csv(df,
+  #             file_name_out,
+  #             progress = FALSE)
+  # }
+  # if (verbose == TRUE) cat("Local Heights calculated for CV", curr_CV, ".\n")
   # if (verbose == TRUE) cat("*********************************\n")
   
   if (verbose == TRUE) cat("Normalizing local heights.\n")
-  local_heights_norm <- normalize_local_heights(df = local_heights,
+  df_norm <- normalize_df(df = df,
                                                 normalize_diam = curr_facet_estimate,
                                                 column_to_normalize = "local_height_log", # "local_height" "local_height_log"
                                                 cores = cores,
-                                                plot_file = file.path(local_heights_normalized_folder,
-                                                                      gsub("csv$", "pdf", basename(curr_filename_out))),
+                                                # plot_file = file.path(df_normalized_folder,
+                                                #                       gsub("csv$", "pdf", basename(curr_filename_out))),
                                                 verbose = verbose)
   
-  # write local_heights as csv
-  file_name_out_norm <- file.path(local_heights_folder_normalized, gsub("_local_heights.csv",
-                                                                        "_local_heights_normalized.csv",
-                                                                        basename(file_name_out)))
-  if(write_results_to_file == TRUE){
-    write_csv(local_heights_norm,
-              file_name_out_norm,
-              progress = FALSE)
-  }
-  
   if (verbose == TRUE) cat("All done!\n")
-  return(local_heights_norm)
+  return(df_norm)
 }
 
 
@@ -254,10 +198,8 @@ find_local_heights <- function(file_name,
 #' @examples
 #' xxx: add example and change above descsriptionand parameters
 #'
-threshold_high_points <- function(file_name = file_name,
-                                  local_heights_folder_normalized,
-                                  rough_clusters_folder,
-                                  thresholds_file = "./data/thresholds.log",
+threshold_high_points <- function(df,
+                                  thresholds_file,
                                   column1 = "x",
                                   column2 = "y",
                                   min_threshold = 2,
@@ -265,12 +207,10 @@ threshold_high_points <- function(file_name = file_name,
                                   final_threshold = 5,
                                   cores = 18,
                                   plot_results = TRUE,
+                                  plot_file,
                                   verbose = FALSE){
   
   # # testing
-  # file_name = file_name
-  # local_heights_folder_normalized = local_heights_folder_normalized
-  # rough_clusters_folder = rough_clusters_folder
   # thresholds_file <- "./data/thresholds.log"
   # column1 = "x"
   # column2 = "y"
@@ -284,21 +224,8 @@ threshold_high_points <- function(file_name = file_name,
   # Dependencies ------------------------------------------------------------
   # 3D plotting
   require(rgl)
-  
-  # fast csv wrighting and reading
-  require(readr)
-  
-  # file moving
-  require(filesstrings)
-  
-  # read and write excel files
-  require(xlsx)
-  
-  # print loop progress with print_progress()
-  require(forceR)
-  
-  # load tidyverse for its various conveniences
-  require(tidyverse)
+  # dplyr for tibble handling and pipe
+  require(dplyr)
   
   # check if a csv file exists to sore all threshold values in a log file
   
@@ -321,55 +248,48 @@ threshold_high_points <- function(file_name = file_name,
                            progress  = FALSE)
   }
   
+  # # load csv file
+  # local_heights <- read_csv(file.path(file_name),
+  #                           show_col_types = FALSE,
+  #                           progress  = FALSE)
   
-  if(verbose == TRUE) cat(file_name, "\n")
-  
-  # get infos from file name
-  curr_CV <- gsub("^CV(\\d+)_.+$", "\\1", basename(file_name))
-  curr_eye <- gsub("^.+eye(\\d+)_.+$", "\\1", basename(file_name))
-  
-  # load csv file
-  local_heights <- read_csv(file.path(file_name),
-                            show_col_types = FALSE,
-                            progress  = FALSE)
-  
-  # define new file name independent of raw or normalized input file
-  file_name_out <- gsub("_local_heights.csv", "_rough_clusters.csv", basename(file_name))
-  file_name_out <- gsub("_local_heights_normalized.csv", "_rough_clusters.csv", file_name_out)
-  
+  # # define new file name independent of raw or normalized input file
+  # file_name_out <- gsub("_df.csv", "_df.csv", basename(file_name))
+  # file_name_out <- gsub("_df_normalized.csv", "_df.csv", file_name_out)
   
   # # choose from raw values ("local_height") 
   # #   or log-transformed, quantile-filtered values ("local_height_log"), local_height_log_norm
   
+  
   # plot eye in 'SEM colors'
   if(plot_results == TRUE){
     # get columns with highest ranges translations
-    column_ranges <- c(diff(range(local_heights$x)), diff(range(local_heights$y)), diff(range(local_heights$z)))
+    column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
     names(column_ranges) <- c("x","y","z")
     column_trans <- names(sort(column_ranges))[2]
-    plot3d(local_heights %>% 
+    plot3d(df %>% 
              select(x,y,z), 
-           col = local_heights %>% 
+           col = df %>% 
              pull(local_height_col), # gsub("_height", "_height_col", height_column)
            aspect = "iso",
            size=5)
-    points3d(local_heights %>% 
+    points3d(df %>% 
                select(x,y,z) %>% 
                mutate(!!as.symbol(column_trans) := 
                         !!as.symbol(column_trans) +
                         max(!!as.symbol(column_trans)) +  
                         0.2 * diff(range(!!as.symbol(column_trans)))), 
-             col = local_heights %>% 
+             col = df %>% 
                pull(local_height_log_col), # gsub("_height", "_height_col", height_column)
              aspect = "iso",
              size=5)
-    points3d(local_heights %>% 
+    points3d(df %>% 
                select(x,y,z) %>% 
                mutate(!!as.symbol(column_trans) := 
                         !!as.symbol(column_trans) +
                         2 * max(!!as.symbol(column_trans)) +  
                         2 * 0.2 * diff(range(!!as.symbol(column_trans)))), 
-             col = local_heights %>% 
+             col = df %>% 
                pull(local_height_log_norm_col), # gsub("_height", "_height_col", height_column)
              aspect = "iso",
              size=5)
@@ -378,7 +298,7 @@ threshold_high_points <- function(file_name = file_name,
   height_column <- "local_height_log_norm" # local_height_log local_height_log_norm
   
   # # show range of height values as orientation for threshoöd selection
-  # range(local_heights %>% 
+  # range(df %>% 
   #         pull(!!as.symbol(height_column)))
   
   # print(file_name)
@@ -386,15 +306,14 @@ threshold_high_points <- function(file_name = file_name,
   
   
   # # find threshold manually
-  find_threshold(df = local_heights, # %>% filter(row_number() %% 2 == 0),
+  find_threshold(df = df, # %>% filter(row_number() %% 2 == 0),
                  height_column = height_column,
                  column1 = column1,
                  column2 = column2,
                  min_threshold = min_threshold,
                  max_treshold = max_treshold,
                  trials = 9,
-                 plot_file = file.path(rough_clusters_folder,
-                                       gsub("csv$", "pdf", file_name_out)))
+                 plot_file = plot_file)
   
   
   
@@ -409,26 +328,26 @@ threshold_high_points <- function(file_name = file_name,
     curr_threshold = final_threshold
     
     # filter data according to threshold
-    rough_clusters <- local_heights %>% 
+    df <- df %>% 
       filter(!!as.symbol(height_column) >= curr_threshold) %>% 
       select(x,y,z)
     
-    if(nrow(rough_clusters) > 65536){
-      warning("Number (", nrow(rough_clusters), ") should not exceed 65536.\nRemove ", nrow(rough_clusters)-65536, " points or split data.")
+    if(nrow(df) > 65536){
+      warning("Number (", nrow(df), ") should not exceed 65536.\nRemove ", nrow(df)-65536, " points or split data.")
     } else{
-      if(verbose == TRUE) cat(nrow(rough_clusters), " points.\n")
+      if(verbose == TRUE) cat(nrow(df), " points.\n")
     }
     
     # plot eye in 'SEM colors'
-    plot3d(local_heights %>% 
+    plot3d(df %>% 
              select(x,y,z), 
-           col = local_heights %>% 
+           col = df %>% 
              pull(local_height_log_col), 
            aspect = "iso",
            size=10)
     
     # add clusters to plot
-    spheres3d(rough_clusters, #%>% 
+    spheres3d(df, #%>% 
               # slice(110000:111000), 
               col = "orange", 
               aspect = "iso",
@@ -443,18 +362,13 @@ threshold_high_points <- function(file_name = file_name,
             scale = height_column,
             threshold = curr_threshold)
   
-  # write tri_centers_normals with local heights into
+  # write df with local heights into
   write_csv(thresholds, 
             thresholds_file,
             progress = FALSE)
   
-  # write local_heights
-  write_csv(rough_clusters, 
-            file.path(rough_clusters_folder, file_name_out),
-            progress = FALSE)
-  
   if(verbose == TRUE) cat("All done!\n")
-  return(rough_clusters)
+  return(df)
 }
 
 
@@ -470,18 +384,18 @@ threshold_high_points <- function(file_name = file_name,
 #' @examples
 #' xxx: add example and change above descsriptionand parameters
 #'
-find_facet_positions <- function(file_name = file_name,
-                                 rough_clusters_folder,
-                                 facet_candidate_folder,
+find_facet_positions <- function(df,
+                                 local_heights,
                                  h_min = 46.127,
                                  h_max = 16.287,
                                  h_final = 23.873,
-                                 cutoffs_file = "./data/cutoffs.log",
-                                 plot_results = TRUE){
+                                 column1 = NULL,
+                                 column2 = NULL,
+                                 cutoffs_file,
+                                 plot_results = TRUE,
+                                 plot_file,
+                                 verbose = FALSE){
   # testing
-  # file_name = file_name
-  # rough_clusters_folder = rough_clusters_folder
-  # facet_candidate_folder = facet_candidate_folder
   # h_min = 20
   # h_max = 8
   # h_final = 16
@@ -491,26 +405,13 @@ find_facet_positions <- function(file_name = file_name,
   # Dependencies ------------------------------------------------------------
   # 3D plotting
   require(rgl)
-  
-  # fast csv wrighting and reading
-  require(readr)
-  
-  # file moving
-  require(filesstrings)
-  
-  # read and write excel files
-  require(xlsx)
-  
-  # print loop progress with print_progress()
-  require(forceR)
-  
-  # load tidyverse for its various conveniences
-  require(tidyverse)
+  # dplyr for tibble handling and pipe
+  require(dplyr)
   
   
   # check if a csv file exists to sore all threshold values in a log file
   if(!file.exists(cutoffs_file)){
-    cat("Creating ", cutoffs_file, "...\n")
+    if(verbose == TRUE) cat("Creating ", cutoffs_file, "...\n")
     cutoffs <- tibble(CV = character(),
                       eye = numeric(),
                       cutoff_min = numeric(),
@@ -521,7 +422,7 @@ find_facet_positions <- function(file_name = file_name,
     write_csv(cutoffs, file = cutoffs_file,
               progress  = FALSE)
   } else{
-    cat("Loading ", cutoffs_file, "...\n")
+    if(verbose == TRUE) cat("Loading ", cutoffs_file, "...\n")
     cutoffs <- read_csv(file = cutoffs_file,
                         show_col_types = FALSE,
                         col_types = "cdddd",
@@ -530,25 +431,17 @@ find_facet_positions <- function(file_name = file_name,
   
   
   # Find facet position candidates
-  cat(file_name, "\n")
   
-  # get infos from file name
-  curr_CV <- gsub("^CV(\\d+)_.+$", "\\1", basename(file_name))
-  curr_eye <- gsub("^.+eye(\\d+)_.+$", "\\1", basename(file_name))
+  # # load csv file of rough clusters
+  # rough_clusters <- read_csv(file_name,
+  #                            show_col_types = FALSE)
   
-  # load csv file of rough clusters
-  rough_clusters <- read_csv(file_name,
-                             show_col_types = FALSE)
+  # # get local heights for plotting
+  # curr_df_file <- gsub(df_folder, df_folder, file_name)
+  # curr_df_file <- gsub("_df", "_df", curr_df_file)
+  # df <- read_csv(curr_df_file,
+  #                           show_col_types = FALSE)
   
-  # get local heights for plotting
-  curr_local_heights_file <- gsub(rough_clusters_folder, local_heights_folder, file_name)
-  curr_local_heights_file <- gsub("_rough_clusters", "_local_heights", curr_local_heights_file)
-  local_heights <- read_csv(curr_local_heights_file,
-                            show_col_types = FALSE)
-  
-  # define new file name
-  file_name_out <- gsub("_rough_clusters.csv", "_facet_candidates.csv", basename(file_name))
-  # file_name_out <- gsub("_rough_clusters_reduced.csv", "_facet_candidates.csv", file_name_out)
   
   if(plot_results == TRUE){
     # plot local heights
@@ -559,22 +452,23 @@ find_facet_positions <- function(file_name = file_name,
            size = 5)
     
     # plot rough clusters
-    points3d(rough_clusters,
+    points3d(df,
              size = 10,
              col = "orange")
   }
   
   # get fine peaks. Make sure your plot device is as large as possible
-  facet_positions_auto <- find_facet_canidates(df = rough_clusters, # %>% 
+  facet_positions_auto <- find_facet_canidates(df = df, # %>% 
                                                # slice(1:floor(nrow(.)/2)), 
                                                # slice(ceiling(nrow(.)/2):nrow(.)), 
                                                h_min = h_min,
                                                h_max = h_max,
+                                               column1 = NULL,
+                                               column2 = NULL,
                                                h_final = h_final,
                                                n_steps = 100,
-                                               plot_file = file.path(facet_candidate_folder,
-                                                                     gsub("csv$", "pdf", file_name_out)),
-                                               verbose = TRUE)
+                                               plot_file = plot_file,
+                                               verbose = verbose)
   
   
   # # in case analysis was split in two halves (done for CV0034)
@@ -592,7 +486,7 @@ find_facet_positions <- function(file_name = file_name,
            size = 5)
     
     # plot rough clusters
-    points3d(rough_clusters,
+    points3d(df,
              size = 10,
              col = "orange")
     
@@ -616,16 +510,17 @@ find_facet_positions <- function(file_name = file_name,
             cutoffs_file,
             progress = FALSE)
   
-  # write facet_positions_auto
-  write_csv(facet_positions_auto %>% 
-              select(ID,x,y,z), 
-            file.path(facet_candidate_folder, file_name_out[1]),
-            progress = FALSE)
+  # # write facet_positions_auto
+  # write_csv(facet_positions_auto %>% 
+  #             select(ID,x,y,z), 
+  #           file.path(facet_candidate_folder, file_name_out[1]),
+  #           progress = FALSE)
   
-  cat("All done!\n")
+  if(verbose == TRUE) cat("All done!\n")
   
-  cat("Now go to Blender and check facet candidates at", file.path(facet_candidate_folder, file_name_out[1]), "manually.\n")
+  if(verbose == TRUE) cat("Now go to Blender and check facet candidates at", file.path(facet_candidate_folder, file_name_out[1]), "manually.\n")
   
-  return(facet_positions_auto)
+  return(facet_positions_auto %>% 
+           select(ID,x,y,z))
 }
 

@@ -7,9 +7,7 @@
 convert_STL_to_tibble(
   file_name,
   stl_folder,
-  triangle_centers_and_normals_folder,
   plot_results = TRUE,
-  write_results_to_file = TRUE,
   verbose = TRUE
 )
 }

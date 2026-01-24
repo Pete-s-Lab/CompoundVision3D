@@ -10,6 +10,8 @@ find_facet_canidates(
   h_min = NULL,
   h_max = NULL,
   h_final = NULL,
+  column1 = NULL,
+  column2 = NULL,
   n_steps = 100,
   plot_file = NULL,
   verbose = FALSE

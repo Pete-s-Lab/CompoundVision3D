@@ -5,14 +5,17 @@
 \title{Find facet poisition candidates}
 \usage{
 find_facet_positions(
-  file_name = file_name,
-  rough_clusters_folder,
-  facet_candidate_folder,
+  df,
+  local_heights,
   h_min = 46.127,
   h_max = 16.287,
   h_final = 23.873,
-  cutoffs_file = "./data/cutoffs.log",
-  plot_results = TRUE
+  column1 = NULL,
+  column2 = NULL,
+  cutoffs_file,
+  plot_results = TRUE,
+  plot_file,
+  verbose = FALSE
 )
 }
 \arguments{

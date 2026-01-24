@@ -5,10 +5,8 @@
 \title{Filter high cuticle vertices by thresholding}
 \usage{
 threshold_high_points(
-  file_name = file_name,
-  local_heights_folder_normalized,
-  rough_clusters_folder,
-  thresholds_file = "./data/thresholds.log",
+  df,
+  thresholds_file,
   column1 = "x",
   column2 = "y",
   min_threshold = 2,
@@ -16,6 +14,7 @@ threshold_high_points(
   final_threshold = 5,
   cores = 18,
   plot_results = TRUE,
+  plot_file,
   verbose = FALSE
 )
 }

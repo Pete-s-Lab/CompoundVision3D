@@ -17,8 +17,7 @@ Creates the following folders:\cr
 \verb{./data/1_pre_STLs/}\cr
 \verb{./data/2_STLs/}\cr
 \verb{./data/3_triangle_centers_and_normals/}\cr
-\verb{./data/4_1_local_heights/}\cr
-\verb{./data/4_2_local_heights_normalized/}\cr
+\verb{./data/4_local_heights/}\cr
 \verb{./data/5_rough_clusters/}\cr
 \verb{./data/6_facet_candidates/}\cr
 \verb{./data/7_facet_positions/}\cr

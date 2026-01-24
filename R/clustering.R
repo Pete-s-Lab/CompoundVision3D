@@ -192,24 +192,131 @@ find_facets_rough <- function(df,
 #' 
 
 find_facet_canidates <- function(df,
-                             cols_to_use = 1:3,
-                             h_min = NULL,
-                             h_max = NULL,
-                             h_final = NULL,
-                             n_steps = 100,
-                             plot_file = NULL,
-                             verbose = FALSE){
+                                 cols_to_use = 1:3,
+                                 h_min = NULL,
+                                 h_max = NULL,
+                                 h_final = NULL,
+                                 column1 = NULL,
+                                 column2 = NULL,
+                                 n_steps = 100,
+                                 plot_file = NULL,
+                                 verbose = FALSE){
   
   # # testing
-  # df = rough_peaks
+  # df = facet_candidates
   # cols_to_use = 1:3
-  # h_min = NULL
-  # h_max = NULL
-  # h_final = NULL
+  # h_min = 20
+  # h_max = 8
+  # h_final = 8
+  # column1 = NULL
+  # column2 = NULL
+  # column1 = "x"
+  # column2 = "y"
   # n_steps = 100
-  # plot_file = file.path(facet_candidate_folder,
-  #                       gsub("csv$", "pdf", curr_filename_out))
+  # plot_file = NULL
   # verbose = TRUE
+  
+  # set up function to plot
+  cadidate_plotting <- function(){
+    # plot dendrogram
+    x_total <- length(hc1$order)
+    y_total <- max(hc1$height)
+    
+    # set x and y limits of dendrogram plot to 1/4 and 1/5th, respecitivels
+    xlim_frac <- c(0, x_total / 4)
+    ylim_frac <- c(0, y_total / 5)
+    
+    # if there are fewer branches than 180, set to 180 or to total number
+    if((x_total / 4) < 180) xlim_frac[2] <- 180
+    if(x_total < 180) xlim_frac[2] <- x_total
+    
+    
+    # Set plot layout
+    layout(mat = matrix(c(1, 2, 3, 4), 
+                        nrow = 4, 
+                        ncol = 1),
+           heights = c(2,1,1,3))# ,    # Heights of the two rows
+    
+    # plot dendrogram
+    op <- par(mar = c(1, 4, 3, 2) + 0.1)  # bottom, left, top, right par(mar = c(1, 4, 3, 2) + 0.1)
+    plot(
+      as.dendrogram(hc1),
+      cex = 0.1,
+      xlab = "",
+      main = paste0("Zoom of hierarchical clustering dendrogram (cur. cf.: ", 
+                    as.numeric(curr_cutoff), 
+                    "; final cf.: ", as.numeric(h_final$x),
+                    ")"),
+      sub = "",
+      xlim = xlim_frac,
+      ylim = ylim_frac,
+      leaflab = "none"
+    )
+    par(op)
+    
+    abline(a=h_max, b=0, col="blue", lty=2)
+    abline(a=h_min, b=0, col="blue", lty=2)
+    abline(a=as.numeric(curr_cutoff), b=0, col="blue", lty=1)
+    abline(a=as.numeric(h_final), b=0, col="red", lty=1)
+    
+    
+    # curve
+    plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no,
+         xlab = "Cutoff value",
+         ylab = "facet number") # , ylim = c(0,max(ommatidia.no.df$ommatidia.no))
+    lines(x=rep(h_min, 2), y = c(min(ommatidia.no.df$ommatidia.no), max(ommatidia.no.df$ommatidia.no)),
+          col = "blue", lty=2)
+    lines(x=rep(h_max, 2), y = c(min(ommatidia.no.df$ommatidia.no), max(ommatidia.no.df$ommatidia.no)),
+          col = "blue", lty=2)
+    lines(x=rep(as.numeric(curr_cutoff$x), 2), y = c(min(ommatidia.no.df$ommatidia.no), max(ommatidia.no.df$ommatidia.no)),
+          col = "blue")
+    lines(x=rep(as.numeric(h_final$x), 2), y = c(min(ommatidia.no.df$ommatidia.no), max(ommatidia.no.df$ommatidia.no)),
+          col = "red")
+    
+    # differences
+    plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no.diff, type="l",
+         xlab = "Cutoff value",
+         ylab = "Delta facet number")
+    lines(x=rep(h_min, 2), y = c(min(ommatidia.no.df$ommatidia.no.diff), max(ommatidia.no.df$ommatidia.no.diff)),
+          col = "blue", lty=2)
+    lines(x=rep(h_max, 2), y = c(min(ommatidia.no.df$ommatidia.no.diff), max(ommatidia.no.df$ommatidia.no.diff)),
+          col = "blue", lty=2)
+    lines(x=rep(as.numeric(curr_cutoff$x), 2), y = c(min(ommatidia.no.df$ommatidia.no.diff), max(ommatidia.no.df$ommatidia.no.diff)),
+          col = "blue")
+    lines(x=rep(as.numeric(h_final$x), 2), y = c(min(ommatidia.no.df$ommatidia.no.diff), max(ommatidia.no.df$ommatidia.no.diff)),
+          col = "red")
+    abline(a=0, b=0, col="red", lty=2)
+    
+    
+    plot(df.fin.clean %>% 
+           select(!!column1, !!column2),
+         asp = 1,
+         pch = 16,
+         cex = .5)
+    
+    # # Histogram
+    # hist.plot <- hist(dist.clusters.tbl$value,
+    #                   main = "Histogram of distances",
+    #                   xlab = paste0("Distance"))
+    # break_size <- hist.plot$breaks[2]
+    # hist_x <- hist.plot$breaks[which(hist.plot$counts == max(hist.plot$counts))[1]] + break_size/2
+    # lines(x = rep(hist_x, 2), y=c(0, (max(hist.plot$counts) + 0.05 * max(hist.plot$counts))),
+    #       col = "blue")
+    # par(mfrow=c(1,1))
+  }
+  
+  # if undefined, take the columns with the highest ranges for plotting
+  if(is.null(column1)){
+    column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
+    names(column_ranges) <- c("x","y","z")
+    column1 <- names(sort(column_ranges))[2]
+  }
+  if(is.null(column2)){
+    column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
+    names(column_ranges) <- c("x","y","z")
+    column2 <- names(sort(column_ranges))[3]
+  }
+  
   start_time <- Sys.time()
   # dplyr NULLs
   ID <- x <- y <- z <- cluster <- Var1 <- Var2 <- '.' <- NULL
@@ -237,22 +344,18 @@ find_facet_canidates <- function(df,
     h_min = h.cutoff.df$y[1]
     h_max = h.cutoff.df$y[2]
     
-    if(verbose == TRUE){
-      cat("Cutoff values:", paste0(round(h_min,3), "; ", round(h_max, 3),"."), "\n")
-    }
+    if(verbose == TRUE) cat("Cutoff values:", paste0(round(h_min,3), "; ", round(h_max, 3),"."), "\n")
   } else {
-    cat(paste0("Cut-offs defined as: ", round(h_min,3), "; ", round(h_max, 3),"."), "\n")
+    if(verbose == TRUE) cat("Cut-offs defined as:", round(h_min,3), "and", round(h_max, 3),".", "\n")
   }
   
-  if(verbose == TRUE){
-    cat(paste0("Min.: ", round(h_min,3), "; max.: ", round(h_max, 3)), "\n")
-  }
+  if(verbose == TRUE) cat(paste0("Min.: ", round(h_min,3), "; max.: ", round(h_max, 3)), "\n")
+  
   # n_steps = 200
   names = c("h", "ommatidia.no")
   
-  if(verbose == TRUE){
-    cat("Finding clusters for", n_steps, "points between cut-off values...", "\n")
-  }
+  if(verbose == TRUE) cat("Finding clusters for", n_steps, "points between cut-off values...", "\n")
+  
   ommatidia.no.df = as_tibble(setNames(data.frame(matrix(nrow = 0, 
                                                          ncol = length(names))), 
                                        names))
@@ -267,63 +370,91 @@ find_facet_canidates <- function(df,
   ommatidia.no.df <- ommatidia.no.df %>%
     mutate(ommatidia.no.diff = ommatidia.no - lag(ommatidia.no, default = ommatidia.no[2]))
   
-  par(mfrow=c(3,1))
-  
-  # plot dendrogram
-  x_total <- length(hc1$order)
-  y_total <- max(hc1$height)
-  
-  xlim_frac <- c(0, x_total / 4)
-  ylim_frac <- c(0, y_total / 5)
-  
-  op <- par(mar = c(1, 4, 3, 2) + 0.1)  # bottom, left, top, right par(mar = c(1, 4, 3, 2) + 0.1)
-  plot(
-    as.dendrogram(hc1),
-    cex = 0.1,
-    xlab = "",
-    main = "Zoom of hierarchical clustering dendrogram",
-    sub = "",
-    xlim = xlim_frac,
-    ylim = ylim_frac,
-    leaflab = "none"
-  )
-  par(op)
-  
-  abline(a=5, b=0, col="blue", lty=2)
-  abline(a=20, b=0, col="blue", lty=2)
-  abline(a=16, b=0, col="blue")
-  
-  plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no,
-       xlab = "clustering cut-off value",
-       ylab = "resulting facet number")
-  abline(v=h_min, col="blue", lty=2)
-  abline(v=h_max, col="blue", lty=2)
-  abline(v=h_final, col="blue")
-  
-  plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no.diff, type="l",
-       xlab = "clustering cut-off value",
-       ylab = "delta facet number")
-  abline(a=0, b=0, col="red", lty=2)
-  abline(v=h_min, col="blue", lty=2)
-  abline(v=h_max, col="blue", lty=2)
-  abline(v=h_final, col="blue")
-  par(mfrow=c(1,1))
   
   if(is.null(h_final)){
     cat("Select cut-off point on x-axis.", "\n")
     h_final <- locator(type = "n", n=1)
-    if(verbose==TRUE){
-    cat(paste0("Final cut-off chosen: ", round(h_final$x[length(h_final$x)], 2)), "\n")
-    }
+    if(verbose==TRUE) cat(paste0("Final cut-off chosen: ", round(h_final$x[length(h_final$x)], 2)), "\n")
   } else if(is.numeric(h_final)){
     h_final <- data.frame(x=h_final)
-    cat(paste0("Final cut-off value defined as: ", round(h_final,3),"."), "\n")
+    if(verbose==TRUE) cat(paste0("Final cut-off value defined as: ", round(h_final,3),"."), "\n")
   }
+  
+  # define range in which to look for cutoffs
+  cutoff_range <- seq(h_max,h_min,length.out=9)
+  cutoff_range <- cutoff_range[cutoff_range >= 1]
+  
+  # plot ranges
+  # save to file
+  if(!is.null(plot_file)){
+    # curr_plot_file <- gsub("_facet_candidates\\.pdf", 
+    #                        paste0("_facet_candidates_", 
+    #                               as.numeric(curr_cutoff),
+    #                               ".pdf"), 
+    #                        plot_file)
+    if(verbose == TRUE) cat("Saving plots as ", plot_file, "\n")
+    
+    # PDF plots
+    pdf(plot_file, # , today()
+        onefile = TRUE, 
+        paper = "a4", 
+        height = 14)
+  }
+  
+  curr_cutoff = cutoff_range[1]
+  ctr = 0
+  for(curr_cutoff in cutoff_range){
+    ctr = ctr+1
+    if(verbose==TRUE) cat("Current cutoff:", curr_cutoff, 
+                          "(", ctr, "/", length(cutoff_range), ")\n")
+    
+    curr_cutoff <- data.frame(x=curr_cutoff)
+    
+    
+    # save a vector (clusters.fin) that stores to which cluster each coordinate belongs
+    clusters.fin <- cutree(hc1, h = curr_cutoff$x[length(curr_cutoff$x)])
+    
+    # add cluster-memberships (clusters.fin) to the cluster coordinates (df)
+    # reduce clusters to their mean coordinates
+    df.fin <- df %>% 
+      select(all_of(cols_to_use)) %>% 
+      mutate(cluster = clusters.fin) %>% 
+      group_by(cluster) %>% 
+      dplyr::summarize(x = median(!!as.symbol(colnames(df)[cols_to_use[1]])),
+                       y = median(!!as.symbol(colnames(df)[cols_to_use[2]])),
+                       z = median(!!as.symbol(colnames(df)[cols_to_use[3]]))) %>% 
+      select(-cluster)
+    
+    # # create distance matrix of all clusters to each other
+    # dist.clusters <- dist(df.fin)
+    # 
+    # # melt the distance matrix into a three-column tibble
+    # dist.clusters.tbl <- reshape2::melt(as.matrix((dist.clusters))) %>% as_tibble() %>% filter(Var1 < Var2)
+    # 
+    # clust.dist.med <- median(dist.clusters.tbl$value)
+    
+    # filter the clusters that remain
+    df.fin.clean <- df.fin %>% 
+      mutate(ID = 1:nrow(.))
+    
+    
+    
+    # # device plotting
+    cadidate_plotting()
+  }
+  
+  if(!is.null(plot_file)){
+    dev.off()
+  }
+  
+  # reset to h_final
+  if(verbose==TRUE) cat("Resetting to:", as.numeric(h_final), "\n")
+  
+  curr_cutoff <- h_final
   
   
   # save a vector (clusters.fin) that stores to which cluster each coordinate belongs
-  clusters.fin <- cutree(hc1, h = h_final$x[length(h_final$x)])
-  # print(paste0("Found ", length(unique(clusters.fin)), " potential facets."))
+  clusters.fin <- cutree(hc1, h = curr_cutoff$x[length(curr_cutoff$x)])
   
   # add cluster-memberships (clusters.fin) to the cluster coordinates (df)
   # reduce clusters to their mean coordinates
@@ -336,100 +467,18 @@ find_facet_canidates <- function(df,
                      z = median(!!as.symbol(colnames(df)[cols_to_use[3]]))) %>% 
     select(-cluster)
   
-  # create distance matrix of all clusters to each other
-  dist.clusters <- dist(df.fin)
-  
-  # melt the distance matrix into a three-column tibble
-  dist.clusters.tbl <- reshape2::melt(as.matrix((dist.clusters))) %>% as_tibble() %>% filter(Var1 < Var2)
-  
-  # # plot a histogram of all distances
-  # hist.plot <- hist(dist.clusters.tbl$value)
-  # break_size <- hist.plot$breaks[2]
-  # hist_x <- hist.plot$breaks[which(hist.plot$counts == max(hist.plot$counts))[1]] + break_size/2
-  # lines(x = rep(hist_x, 2), y=c(0, (max(hist.plot$counts) + 0.05 * max(hist.plot$counts))),
-  #       col = "blue", lty = 2)
-  
-  
-  clust.dist.med <- median(dist.clusters.tbl$value)
+  # # create distance matrix of all clusters to each other
+  # dist.clusters <- dist(df.fin)
+  # 
+  # # melt the distance matrix into a three-column tibble
+  # dist.clusters.tbl <- reshape2::melt(as.matrix((dist.clusters))) %>% as_tibble() %>% filter(Var1 < Var2)
+  # 
+  # clust.dist.med <- median(dist.clusters.tbl$value)
   
   # filter the clusters that remain
   df.fin.clean <- df.fin %>% 
     mutate(ID = 1:nrow(.))
   
-  if(!is.null(plot_file)){
-    if(verbose == TRUE){
-      cat(paste0("Saving plots as ", plot_file), "\n")
-    }
-    
-    
-    # PDF plots
-    pdf(plot_file, # , today()
-        onefile = TRUE, paper = "a4", height = 14)
-    
-    # par(mfrow=c(3,1))
-    # Set plot layout
-    layout(mat = matrix(c(1, 2, 3, 4), 
-                        nrow = 4, 
-                        ncol = 1),
-           heights = c(2,1,1,1))# ,    # Heights of the two rows
-    # widths = c(2, 1))     # Widths of the two columns
-    # layout.show(4)
-    # tree
-    # plot(hc1, 
-    #      cex = 0.6, 
-    #      hang = -1, 
-    #      xlab = paste0("Cutoff-values (blue); ", round(h_min,2), " & ", round(h_max,2)), 
-    #      main = "Hierarchical Clustering", 
-    #      sub = "",
-    #      labels = FALSE,
-    #      xlim = c(0, 10))
-    # abline(a=h_min, b=0, col="blue", lty=2)
-    # abline(a=h_max, b=0, col="blue", lty=2)
-    # abline(v=h_final, col="blue")
-    
-    # plot dendrogram
-    op <- par(mar = c(1, 4, 3, 2) + 0.1)  # bottom, left, top, right par(mar = c(1, 4, 3, 2) + 0.1)
-    plot(
-      as.dendrogram(hc1),
-      cex = 0.1,
-      xlab = "",
-      main = "Zoom of hierarchical clustering dendrogram",
-      sub = "",
-      xlim = xlim_frac,
-      ylim = ylim_frac,
-      leaflab = "none"
-    )
-    par(op)
-    
-    abline(a=5, b=0, col="blue", lty=2)
-    abline(a=20, b=0, col="blue", lty=2)
-    abline(a=16, b=0, col="blue")
-    
-    
-    # curve and differences
-    plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no,
-         xlab = "Cutoff value",
-         ylab = "facet number") # , ylim = c(0,max(ommatidia.no.df$ommatidia.no))
-    lines(x=rep(h_final$x, 2), y = c(min(ommatidia.no.df$ommatidia.no), max(ommatidia.no.df$ommatidia.no)),
-          col = "blue")
-    plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no.diff, type="l",
-         xlab = "Cutoff value",
-         ylab = "Delta facet number")
-    lines(x=rep(h_final$x, 2), y = c(min(ommatidia.no.df$ommatidia.no.diff), max(ommatidia.no.df$ommatidia.no.diff)),
-          col = "blue")
-    abline(a=0, b=0, col="red", lty=2)
-    
-    # Histogram
-    hist.plot <- hist(dist.clusters.tbl$value,
-                      main = "Histogram of distances",
-                      xlab = paste0("Distance"))
-    break_size <- hist.plot$breaks[2]
-    hist_x <- hist.plot$breaks[which(hist.plot$counts == max(hist.plot$counts))[1]] + break_size/2
-    lines(x = rep(hist_x, 2), y=c(0, (max(hist.plot$counts) + 0.05 * max(hist.plot$counts))),
-          col = "blue")
-    # par(mfrow=c(1,1))
-    dev.off()
-  }
   if(verbose == TRUE){
     cat(paste0("Found ", nrow(df.fin.clean), " facet center candiates. Check 3D plot device."), "\n")
     
@@ -441,20 +490,20 @@ find_facet_canidates <- function(df,
   if(verbose == TRUE){
     cat("Plotting 'SEM'-coloured eye in RGL 3D window. Check it out to get overview.", "\n")
   }
-  plot3d(df %>% 
-           select(all_of(cols_to_use)), 
-         # col = local_heights$local_height_col_log, 
+  plot3d(df %>%
+           select(all_of(cols_to_use)),
+         # col = local_heights$local_height_col_log,
          aspect = "iso")
   
   # plot the cluster centers
-  spheres3d(df.fin.clean %>% 
-              select(x,y,z), 
+  spheres3d(df.fin.clean %>%
+              select(x,y,z),
             col="red", radius=5, alpha = 1)
   
   return(df.fin.clean %>% 
-           mutate(cutoff_min = round(h_min,3),
-                  cutoff_max = round(round(h_max, 3),3),
-                  cutoff_fin = round(h_final$x, 3)))
+           mutate(cutoff_min = round(h_min,5),
+                  cutoff_max = round(h_max, 5),
+                  cutoff_fin = round(as.numeric(h_final$x), 5)))
 }
 
 

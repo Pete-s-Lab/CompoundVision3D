@@ -5,14 +5,11 @@
 \title{Find local heights}
 \usage{
 find_local_heights(
-  file_name,
-  triangle_centers_and_normals_folder,
-  local_heights_folder,
-  local_heights_folder_normalized,
+  df,
   curr_facet_estimate = 14,
   cores,
-  plot_results = TRUE,
-  write_results_to_file = TRUE,
+  plot_results = FALSE,
+  plot_file = NULL,
   verbose = TRUE
 )
 }

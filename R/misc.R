@@ -12,8 +12,7 @@
 #' `./data/1_pre_STLs/`\cr
 #' `./data/2_STLs/`\cr
 #' `./data/3_triangle_centers_and_normals/`\cr
-#' `./data/4_1_local_heights/`\cr
-#' `./data/4_2_local_heights_normalized/`\cr
+#' `./data/4_local_heights/`\cr
 #' `./data/5_rough_clusters/`\cr
 #' `./data/6_facet_candidates/`\cr
 #' `./data/7_facet_positions/`\cr
@@ -57,10 +56,10 @@ set_up_folder_structure <- function(parent_folder = NULL,
   triangle_centers_and_normals_folder <- "3_triangle_centers_and_normals"
   
   # define folder to store local heights
-  local_heights_folder <- "4_1_local_heights"
+  local_heights_folder <- "4_local_heights"
   
-  # define folder to store normalized local heights
-  local_heights_normalized_folder <- "4_2_local_heights_normalized"
+  # # define folder to store normalized local heights
+  # local_heights_normalized_folder <- "4_2_local_heights_normalized"
   
   # define folder to store rough clusters
   rough_clusters_folder <- "5_rough_clusters"
@@ -86,7 +85,7 @@ set_up_folder_structure <- function(parent_folder = NULL,
   folders_to_create = c(raw_data_folder,
                         pre_stl_folder, stl_folder,
                         triangle_centers_and_normals_folder,
-                        local_heights_folder, local_heights_normalized_folder,
+                        local_heights_folder, # local_heights_normalized_folder,
                         rough_clusters_folder, 
                         facet_candidate_folder, facet_positions_folder,
                         facets_landmarks_combined_folder, facets_landmarks_combined_rotated_folder,
