@@ -6,7 +6,7 @@
 \usage{
 find_local_heights(
   df,
-  curr_facet_estimate = 14,
+  facet_estimate = 14,
   cores,
   plot_results = FALSE,
   plot_file = NULL,

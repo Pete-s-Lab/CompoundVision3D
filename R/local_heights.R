@@ -591,3 +591,285 @@ normalize_local_heights <- function(df,
   
   return(df_fin)
 }
+
+
+
+#' Combine facets with landmarks
+#'
+#' Calculate distance of vertices from local plane.
+#'
+#' @param df A tibble containing triangle center coordinates in columns `x, y, z`.
+#' @param search_diam A numerical value defining the size of the search diameter 
+#' of defining the local plane.
+#' @param cores A numerical value of how many cores to use. Default: `1`.
+# @param normalize A numerical value to specifiy if local distances should be
+# normalized within a the given radius. If `NULL`, normalizing will be skipped.
+# Default: `NULL`. Recommended: `serach_daim/2`.
+#'
+#' @return Tibble `df` with additional column `local_height`.
+#'
+#' @export
+#' @examples
+#' # xxx: add example
+#'
+combine_facets_and_LMs <- function(df,
+                                   local_heights,
+                                   landmarks_file,
+                                   crop_log_file_name,
+                                   cores,
+                                   plot_results = FALSE,
+                                   verbose = FALSE){
+  # # testing
+  # df = facet_candidates
+  # local_heights = local_heights
+  # landmarks_file = landmarks_file
+  # crop_log_file_name = crop_log_file_name
+  # facet_estimate = facet_estimate
+  # cores = 18
+  # plot_results = TRUE
+  # verbose = TRUE
+  
+  # # Dependencies ------------------------------------------------------------
+  # 3D plotting
+  require(rgl)
+  
+  # json file loading
+  require(rjson)
+  
+  # load tidyverse for its various conveniences
+  require(tidyverse)
+  
+  # load log file if it exists
+  if(!is.na(crop_log_file_name)){
+    if(verbose == TRUE) cat("Loading", crop_log_file_name, "\n")
+    crop_log_data <- read_delim(crop_log_file_name,
+                                delim = " = ",
+                                col_names = FALSE,
+                                show_col_types = FALSE) %>% 
+      dplyr::rename(var = X1,
+                    val = X2)
+    
+    # landmarks ---------------------------------------------------------------
+    LMs_df <- read_3DSlicer_landmarks(file = landmarks_file)
+  } else{
+    warning("There is no *crop.log file in ", crop_log_folder)
+    LMs_df <- tibble(LM=character(), x=numeric(),y=numeric(),z=numeric())
+    crop_log_data <- tibble(var=character(), val=character())
+  }
+  
+  
+  # remove duplicate facets if there are any
+  facet_positions <- facet_positions %>% 
+    distinct()
+  
+  
+  # local heights -----------------------------------------------------------
+  
+  # check if units are correct in facet positions file ----------------------
+  ranges <- tibble(local_heights = diff(range(local_heights$x)),
+                   facet_positions = diff(range(facet_positions$x)),
+                   # shrinkwrap = diff(range(shrinkwrap$x)),
+                   LMs = diff(range(LMs_df$x)))
+  
+  if(verbose == TRUE) print(ranges)
+  
+  flag = 0
+  if(ranges$facet_positions[1] <= 0.5 * ranges$local_heights[1]){
+    warning("Local height and facets coordinates do not seem to be in the same unit.")
+    flag = 1
+    
+    # correct units if necessary
+    facet_positions <- facet_positions %>%
+      mutate(x = x*1000,
+             y = y*1000,
+             z = z*1000)
+  }
+  
+  
+  if(ranges$LMs[1] <= 0.5 * ranges$local_heights[1] & curr_CV != "0005"){ 
+    # this is true for the three biting midge STLs because the surface was extracted by authors of the existing paper
+    # only the Apis mesh (0005) is an exception
+    warning("Local height and LM coordinates do not seem to be in the same unit.")
+    flag = 1
+    
+    # correct units if necessary
+    LMs_df <- LMs_df %>%
+      mutate(x = x*1000,
+             y = y*1000,
+             z = z*1000)
+  }
+  
+  # check again if units are correct in facet positions file
+  ranges <- tibble(local_heights = diff(range(local_heights$x)),
+                   facet_positions = diff(range(facet_positions$x)),
+                   # shrinkwrap = diff(range(shrinkwrap$x)),
+                   LMs = diff(range(LMs_df$x)))
+  if(flag == 1){
+    if(verbose == TRUE) cat("New ranges:\n")
+    if(verbose == TRUE) print(ranges)
+  }
+  
+  
+  # plot eye in SEM colors --------------------------------------------------
+  # plot eye in 3D to get overview
+  if(verbose == TRUE) cat("Plotting 'SEM'-coloured eye of", file_name, "in RGL 3D window.\n")
+  if(plot_results == TRUE){
+    plot3d(local_heights %>% 
+             select(x,y,z), 
+           col = local_heights$local_height_log_col, 
+           size= 5,
+           aspect = "iso")
+    title3d(main = "Not yet referenced",
+            cex=3)
+    
+    # plot the facet positions
+    spheres3d(facet_positions %>% 
+                select(x, y, z), 
+              col="red", radius=facet_estimate/4, alpha = 1)
+    
+    # plot the LM coordinates
+    spheres3d(LMs_df %>% 
+                select(x, y, z), 
+              col="blue", radius=facet_estimate/3, alpha = 1)
+    text3d(LMs_df %>% 
+             select(x, y, z), 
+           texts = LMs_df %>% 
+             pull(LM),
+           col="blue", radius=facet_estimate/3, alpha = 1)
+  }
+  
+  # create a distance matrix to remove facet candidates that are so close that they shold be treated as duplicates 
+  if(verbose == TRUE) cat("Creating distance matrix...\n")
+  facet_distance_matrix <- dist(facet_positions %>% 
+                                  select(x,y,z),
+                                method = "euclidean",
+                                diag = TRUE)
+  
+  # transform distance matrix into data frame
+  facet_distance_df_all <- reshape2::melt(as.matrix((facet_distance_matrix), 
+                                                    varnames = c("row", "col"))) %>% 
+    as_tibble() %>% 
+    filter(value > 0)
+  
+  colnames(facet_distance_df_all) <- c("facet_1", "facet_2", "distance")
+  
+  
+  # check if some facets are very close
+  potential_close_facets <- facet_distance_df_all %>% 
+    filter(distance <= facet_estimate/3/1.5)
+  
+  if(nrow(potential_close_facets) > 0){
+    if(verbose == TRUE) cat("Removing", nrow(potential_close_facets), "facet candidates removed as duplicates.\n")
+    
+    # remove facets that may be too close
+    close_IDs <- facet_positions %>% 
+      slice(potential_close_facets %>% 
+              pull(facet_2)) %>% 
+      pull(ID) %>% 
+      unique() %>% 
+      sort()
+    
+    # filter out facets
+    facet_positions_new <- facet_positions %>% 
+      filter(ID %in% close_IDs == FALSE)
+  } else{
+    # no changes
+    facet_positions_new <- facet_positions
+  }
+  
+  # plot eye in SEM colors --------------------------------------------------
+  # plot eye in 3D to get overview
+  if(verbose == TRUE) cat("Plotting 'SEM'-coloured eye of", file_name, "in RGL 3D window.\n")
+  if(plot_results == TRUE){
+    plot3d(local_heights %>% 
+             select(x,y,z), 
+           col = local_heights$local_height_log_col, 
+           size= 5,
+           aspect = "iso")
+    
+    # plot the facet positions
+    spheres3d(facet_positions_new %>% 
+                select(x, y, z), 
+              col="blue", radius=facet_estimate/4, alpha = 1)
+  }
+  
+  if(nrow(crop_log_data) > 0){
+    
+    # extract pixel sizes
+    # original high resolution scan
+    px_size_eyes <- crop_log_data %>% 
+      filter(var == "px_size") %>% 
+      mutate(val = gsub("(^.+) .+", "\\1", iconv(val, from = "ISO-8859-1", to = "UTF-8"))) %>% 
+      pull(val) %>% 
+      as.numeric()
+    
+    # head
+    px_size_head <- crop_log_data %>% 
+      filter(var == "px_size_head") %>% 
+      mutate(val = gsub("(^.+) .+", "\\1", iconv(val, from = "ISO-8859-1", to = "UTF-8"))) %>% 
+      pull(val) %>% 
+      as.numeric()
+    
+    # extract x,y coordinates of head crop and eyes 1 and 2 ROIs ---------------------------------------
+    
+    ROIs <- c("head", "eye1", "eye2")
+    
+    
+    curr_ROI_coordinates <- get_ROI_coordinates(ROIs,
+                                                crop_log_data)
+    
+    
+    # add eye ROI coordinates to curr. eye ROI
+    local_heights_translated <- translate_ROIs(df = local_heights,
+                                               ROI_coordinates = curr_ROI_coordinates,
+                                               eye = as.numeric(curr_eye))
+    
+    
+    
+    facet_positions_translated <- translate_ROIs(df = facet_positions_new,
+                                                 ROI_coordinates = curr_ROI_coordinates,
+                                                 eye = as.numeric(curr_eye))
+  } else{
+    warning("No log file found to translate data.")
+    local_heights_translated <- local_heights
+    facet_positions_translated <- facet_positions
+  }
+  
+  
+  # plot eye and LMs in SEM colors to check if trasnlation was successful ------
+  if(plot_results == TRUE){
+    # plot landmarks
+    plot3d(LMs_df %>% 
+             select(x, y, z), 
+           col="blue", size=10, alpha = 1,
+           aspect = "iso")
+    
+    text3d(LMs_df %>% 
+             select(x, y, z),
+           texts = LMs_df$LM,
+           col="blue")
+    
+    # plot eye
+    points3d(local_heights_translated %>% 
+               select(x,y,z), 
+             col = local_heights$local_height_log_col, 
+             size= 5)
+    
+    # plot facet positions
+    spheres3d(facet_positions_translated %>% 
+                select(x, y, z), 
+              col="red", radius=facet_estimate/4, alpha = 1)
+    
+    # combine all to one tibble
+    LMs_facets_combined <- rbind(facet_positions_translated %>% 
+                                   dplyr::mutate(ID = as.character(ID),
+                                                 type = "facet"), 
+                                 LMs_df %>% 
+                                   dplyr::rename(ID = LM) %>% 
+                                   dplyr::mutate(type = "LM"))
+    
+  }
+  if(verbose == TRUE) cat("All done!!!\n")
+  
+  return(LMs_facets_combined)
+}

@@ -354,6 +354,16 @@ find_facet_canidates <- function(df,
   # n_steps = 200
   names = c("h", "ommatidia.no")
   
+  
+  if(is.null(h_final)){
+    cat("Select cut-off point on x-axis.", "\n")
+    h_final <- locator(type = "n", n=1)
+    if(verbose==TRUE) cat(paste0("Final cut-off chosen: ", round(h_final$x[length(h_final$x)], 2)), "\n")
+  } else if(is.numeric(h_final)){
+    h_final <- data.frame(x=h_final)
+    if(verbose==TRUE) cat(paste0("Final cut-off value defined as: ", round(h_final,3),"."), "\n")
+  }
+  
   if(verbose == TRUE) cat("Finding clusters for", n_steps, "points between cut-off values...", "\n")
   
   ommatidia.no.df = as_tibble(setNames(data.frame(matrix(nrow = 0, 
@@ -371,14 +381,6 @@ find_facet_canidates <- function(df,
     mutate(ommatidia.no.diff = ommatidia.no - lag(ommatidia.no, default = ommatidia.no[2]))
   
   
-  if(is.null(h_final)){
-    cat("Select cut-off point on x-axis.", "\n")
-    h_final <- locator(type = "n", n=1)
-    if(verbose==TRUE) cat(paste0("Final cut-off chosen: ", round(h_final$x[length(h_final$x)], 2)), "\n")
-  } else if(is.numeric(h_final)){
-    h_final <- data.frame(x=h_final)
-    if(verbose==TRUE) cat(paste0("Final cut-off value defined as: ", round(h_final,3),"."), "\n")
-  }
   
   # define range in which to look for cutoffs
   cutoff_range <- seq(h_max,h_min,length.out=9)

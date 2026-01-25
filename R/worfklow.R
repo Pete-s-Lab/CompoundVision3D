@@ -41,7 +41,7 @@ convert_STL_to_tibble <- function(file_name,
   
   # Import and Clean STL and export to csv with coordinates and normals --------
   df <- STL_triangles(file_name = file_name,
-                                       verbose = verbose)
+                      verbose = verbose)
   
   # multiply by 1000 to account for scaling in Blender
   df <- df %>%
@@ -109,13 +109,13 @@ convert_STL_to_tibble <- function(file_name,
 #'
 
 find_local_heights <- function(df,
-                               curr_facet_estimate = 14,
+                               facet_estimate = 14,
                                cores,
                                plot_results = FALSE,
                                plot_file = NULL,
                                verbose = TRUE){
   # # testing
-  # curr_facet_estimate = 14
+  # facet_estimate = 14
   # cores = 12
   # plot_results = TRUE
   # plot_file = gsub("csv$", "pdf", file_name_out)
@@ -127,7 +127,7 @@ find_local_heights <- function(df,
   # dplyr for tibble handling and pipe
   require(dplyr)
   
-  if (verbose == TRUE) cat("Adding local heights according to facet size estimate (", curr_facet_estimate, ")...\n")
+  if (verbose == TRUE) cat("Adding local heights according to facet size estimate (", facet_estimate, ")...\n")
   
   # # load csv file
   # df <- read_csv(file_name,
@@ -139,16 +139,16 @@ find_local_heights <- function(df,
   #   This is a multi-threaded but may still take a while. Define number of cores to suit your system (cores = n).
   
   if(is.null(plot_file)){
-  df <- calculate_df(df = df,
-                                           search_diam = curr_facet_estimate*3,
-                                           cores = cores,
-                                           verbose = verbose)
+    df <- calculate_df(df = df,
+                       search_diam = facet_estimate*3,
+                       cores = cores,
+                       verbose = verbose)
   } else{
     df <- calculate_df(df = df,
-                                             search_diam = curr_facet_estimate*3,
-                                             cores = cores,
-                                             plot_file = plot_file,
-                                             verbose = verbose)
+                       search_diam = facet_estimate*3,
+                       cores = cores,
+                       plot_file = plot_file,
+                       verbose = verbose)
   }
   
   
@@ -174,12 +174,12 @@ find_local_heights <- function(df,
   
   if (verbose == TRUE) cat("Normalizing local heights.\n")
   df_norm <- normalize_df(df = df,
-                                                normalize_diam = curr_facet_estimate,
-                                                column_to_normalize = "local_height_log", # "local_height" "local_height_log"
-                                                cores = cores,
-                                                # plot_file = file.path(df_normalized_folder,
-                                                #                       gsub("csv$", "pdf", basename(curr_filename_out))),
-                                                verbose = verbose)
+                          normalize_diam = facet_estimate,
+                          column_to_normalize = "local_height_log", # "local_height" "local_height_log"
+                          cores = cores,
+                          # plot_file = file.path(df_normalized_folder,
+                          #                       gsub("csv$", "pdf", basename(curr_filename_out))),
+                          verbose = verbose)
   
   if (verbose == TRUE) cat("All done!\n")
   return(df_norm)
