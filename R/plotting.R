@@ -386,3 +386,276 @@ make_segments <- function(df,
   
   segments
 }
+
+
+
+#' Plot optic parameters
+#'
+#' xxx
+#'
+#' @param df A `tibble` with the data columns (`x,y,z`) and the normal columns 
+#' (`norm.x,norm.y,norm.z`)
+#' @param vector_length_multipler a `numeric` value to change the length of the 
+#' plotted vecots. Default: `3`.
+#' 
+#' @return xxx
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above parameter description
+#' 
+plot_optic_parameters <- function(df,
+                                  plot_file = file.path(facet_infos_folder, 
+                                                        gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name))),
+                                  plot_resuts = FALSE,
+                                  verbose = FALSE){
+  # testing
+  df = optics_df
+  plot_file = file.path(facet_infos_folder, 
+                        gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name)))
+  
+  # # # size
+  curr_variable <- "facet size"
+  close3d()
+  
+  # mean size
+  plot3d(optics_df %>% 
+           select(x,y,z), 
+         radius = optics_df$size,
+         # size = mean(optics_df$size)*1.2, 
+         col = optics_df$size_cols, 
+         type="s",
+         label = T, 
+         add = F, 
+         aspect = "iso")
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_1_size.png", plot_file)
+  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  plot3d(optics_df %>% 
+           select(x,y,z), 
+         radius = optics_df$size,
+         # size = mean(optics_df$size)*1.2, 
+         col = optics_df$size_cols, 
+         type="s",
+         label = T, 
+         add = F, 
+         aspect = "iso")
+  spheres3d(curr_LMs %>% select(x,y,z),
+            col="blue", radius=mean(c(dist(range(df$x)),dist(range(df$y)),dist(range(df$z))))/20)
+  text3d(curr_LMs %>% select(x,y,z),
+         texts = curr_LMs$ID,
+         pos = 1)
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_1_size_LMs.png", plot_file)
+  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  # draw vectors
+  vec.mult <- 3
+  
+  x_start <- optics_df %>% pull(x)
+  y_start <- optics_df %>% pull(y)
+  z_start <- optics_df %>% pull(z)
+  
+  x_end <- optics_df %>% pull(x) + optics_df %>%
+    pull(norm.x)*vec.mult*(mean(optics_df %>% pull(size), na.rm = TRUE))
+  y_end <- optics_df %>% pull(y) + optics_df %>%
+    pull(norm.y)*vec.mult*(mean(optics_df %>% pull(size), na.rm = TRUE))
+  z_end <- optics_df %>% pull(z) + optics_df %>%
+    pull(norm.z)*vec.mult*(mean(optics_df %>% pull(size), na.rm = TRUE))
+  
+  plot3d(optics_df %>% 
+           select(x,y,z), 
+         radius = optics_df$size,
+         # size = mean(optics_df$size)*1.2, 
+         col = optics_df$size_cols, 
+         type="s",
+         label = T, 
+         add = F, 
+         aspect = "iso")
+  
+  # Combine start and end points into a single vector
+  segments <- cbind(x_start, y_start, z_start, x_end, y_end, z_end)
+  
+  
+  # texts3d(optics_df %>%
+  #           select(x,y,z),
+  #         texts = optics_df$facet,
+  #         pos = 1)
+  segments3d(x=as.vector(t(segments[,c(1,4)])),
+             y=as.vector(t(segments[,c(2,5)])),
+             z=as.vector(t(segments[,c(3,6)])),
+             col = viridis(n=6)[4],
+             lwd=5)
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  
+  
+  # print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_2_size_normals.png", plot_file)
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  
+  
+  # mean delta.phi.deg
+  curr_variable <- "IF angle"
+  close3d()
+  plot3d(optics_df %>%
+           select(x,y,z),
+         radius = optics_df$size,
+         # size = mean(optics_df$size)*1.2,
+         col = optics_df$delta_phi.deg_cols,
+         type="s",
+         label = T,
+         add = F,
+         aspect = "iso")
+  
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  # print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_2_IF_angles.png", plot_file)
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  
+  # mean P
+  curr_variable <- "eye parameter (P)"
+  close3d()
+  
+  plot3d(optics_df %>%
+           select(x,y,z),
+         radius = optics_df$size,
+         # size = mean(optics_df$size)*1.2, 
+         col = optics_df$P_cols,
+         type="s",
+         aspect = "iso")
+  
+  
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  # print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_3_P.png", plot_file)
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  
+  # mean CPD
+  curr_variable <- "cycles per degree (CPD)"
+  close3d()
+  plot3d(optics_df %>%
+           select(x,y,z),
+         radius = optics_df$size,
+         # size = mean(optics_dfsize)*1.2, 
+         col = optics_df$CPD_cols,
+         type="s",
+         label = T,
+         aspect = "iso")
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  # print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_4_CPD.png", plot_file)
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  # of neighbours
+  curr_variable <- "# of neighbours"
+  close3d()
+  plot3d(optics_df %>%
+           select(x,y,z),
+         radius = optics_df$size,
+         col = optics_df$number_of_neighs_cols,
+         type="s",
+         label = T,
+         aspect = "iso")
+  
+  title3d(paste0(gsub("_neighbour_and_size_data\\.pdf", "", basename(plot_file)), ": ", curr_variable),
+          col = 'black', line = 5)
+  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
+                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
+                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
+                      0, 0, 0, 0, 1), dim = c(4L, 4L))
+  par3d(windowRect = c(20, 30, 1600, 1600),
+        userMatrix = view)
+  bbox3d(alpha = 0.0, xlab="NULL")
+  bg3d(sphere = TRUE, color = "transparent")
+  
+  # print("Saving rotated data as png...")
+  curr_output_file_name <- gsub("_neighbour_and_size_data.pdf", "_5_no_of_neihbours.png", plot_file)
+  rgl.snapshot(curr_output_file_name, fmt = 'png')
+  close3d()
+  
+  cat("Plotting done!")
+}

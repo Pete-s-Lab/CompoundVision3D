@@ -615,7 +615,8 @@ normalize_local_heights <- function(df,
 combine_facets_and_LMs <- function(df,
                                    local_heights,
                                    landmarks_file,
-                                   crop_log_file_name,
+                                   crop_log_file,
+                                   facet_estimate = 14,
                                    cores,
                                    plot_results = FALSE,
                                    verbose = FALSE){
@@ -623,8 +624,8 @@ combine_facets_and_LMs <- function(df,
   # df = facet_candidates
   # local_heights = local_heights
   # landmarks_file = landmarks_file
-  # crop_log_file_name = crop_log_file_name
-  # facet_estimate = facet_estimate
+  # crop_log_file = crop_log_file
+  # facet_estimate = 14
   # cores = 18
   # plot_results = TRUE
   # verbose = TRUE
@@ -640,9 +641,9 @@ combine_facets_and_LMs <- function(df,
   require(tidyverse)
   
   # load log file if it exists
-  if(!is.na(crop_log_file_name)){
-    if(verbose == TRUE) cat("Loading", crop_log_file_name, "\n")
-    crop_log_data <- read_delim(crop_log_file_name,
+  if(!is.na(crop_log_file)){
+    if(verbose == TRUE) cat("Loading", crop_log_file, "\n")
+    crop_log_data <- read_delim(crop_log_file,
                                 delim = " = ",
                                 col_names = FALSE,
                                 show_col_types = FALSE) %>% 

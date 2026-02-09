@@ -8,7 +8,8 @@ combine_facets_and_LMs(
   df,
   local_heights,
   landmarks_file,
-  crop_log_file_name,
+  crop_log_file,
+  facet_estimate = 14,
   cores,
   plot_results = FALSE,
   verbose = FALSE

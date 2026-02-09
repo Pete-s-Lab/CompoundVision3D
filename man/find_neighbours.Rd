@@ -9,6 +9,7 @@ find_neighbours(
   facet_size,
   neighbour_threshold = 1.5,
   cores = 1,
+  plot_results = FALSE,
   plot_file = NULL,
   verbose = FALSE
 )
