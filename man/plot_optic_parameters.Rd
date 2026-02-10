@@ -6,8 +6,7 @@
 \usage{
 plot_optic_parameters(
   df,
-  plot_file = file.path(facet_infos_folder, gsub("_surface.stl",
-    "_neighbour_and_size_data.pdf", basename(file_name))),
+  plot_file = NULL,
   plot_resuts = FALSE,
   verbose = FALSE
 )

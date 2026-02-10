@@ -187,7 +187,7 @@ calculate_local_heights <- function(df,
   }
   
   if(verbose == TRUE){
-    cat("All done!\n")
+    cat("Local heights calculated!\n")
   }
   
   return(df)
@@ -870,7 +870,7 @@ combine_facets_and_LMs <- function(df,
                                    dplyr::mutate(type = "LM"))
     
   }
-  if(verbose == TRUE) cat("All done!!!\n")
+  if(verbose == TRUE) cat("Facets and landmarks combined!\n")
   
   return(LMs_facets_combined)
 }

@@ -921,12 +921,12 @@ get_optic_properties <- function(df,
   
   require(doParallel)
   
-  # # # testing
-  # df = df
+  # # testing
+  # df = df_w_normals
   # cores = 18
-  # plot_results = TRUE
-  # plot_file = gsub("_neighbour_and_size_data",
-  #                  "_optics_parameters",
+  # plot_results = plot_results
+  # plot_file = gsub("_neighbour_and_size_data", 
+  #                  "_optics_parameters", 
   #                  plot_file)
   # verbose = TRUE
   
@@ -934,17 +934,6 @@ get_optic_properties <- function(df,
     cat(paste0("Calculating IF angles, P, v, and CPD for ", nrow(df), " facets (multi-threaded)...\n"))
   }
   
-  # eye_center = colMeans(df %>% 
-  #                         select(x,y,z), na.rm = TRUE)
-  # c(df %>% pull(x) %>% mean(),
-  #              df %>% pull(y) %>% mean(),
-  #              df %>% pull(z) %>% mean())
-  
-  # mean_eye_normal =colMeans(df %>% 
-  #                             select(norm.x,norm.y,norm.z), na.rm = TRUE)
-  # c(df %>% pull(norm.x) %>% mean(., na.rm = TRUE),
-  #                   df %>% pull(norm.y) %>% mean(., na.rm = TRUE),
-  #                   df %>% pull(norm.z) %>% mean(., na.rm = TRUE))
   
   registerDoParallel(cores)
   l=1
@@ -1058,8 +1047,8 @@ get_optic_properties <- function(df,
     weighting_factor <- 6 - no_of_neihbors
     
     # get mean of IF-angles with curr facet angle doubled-weighted
-    dphi_Ps_CPDs$mean.delta_phi.deg[q] <- mean(c(rep(dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == facet], (weighting_factor+1)), 
-                                                 dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == facet],
+    dphi_Ps_CPDs$mean.delta_phi.deg[q] <- mean(c(rep(dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == curr_facet], (weighting_factor+1)), 
+                                                 dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == curr_facet],
                                                  dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID %in% curr.neighbors]))
   }
   dphi_Ps_CPDs$mean.delta_phi.rad <- dphi_Ps_CPDs$mean.delta_phi.deg*pi/180
@@ -1073,7 +1062,7 @@ get_optic_properties <- function(df,
   dphi_Ps_CPDs$v.mean <- NA
   f=1
   for(f in 1:nrow(dphi_Ps_CPDs)){
-    facet = df$ID[f]
+    facet = dphi_Ps_CPDs$ID[f]
     dphi_Ps_CPDs$P.mean[dphi_Ps_CPDs$ID == facet] <- dphi_Ps_CPDs$size[dphi_Ps_CPDs$ID == facet] * 
       dphi_Ps_CPDs$mean.delta_phi.rad[dphi_Ps_CPDs$ID == facet] * 
       (sqrt(3)/2) # eye parameter Snyder 1977. Brigitte: (sqrt(3)/2) * 
@@ -1173,6 +1162,10 @@ get_optic_properties <- function(df,
   
   
   
+  if(verbose == TRUE){
+    cat("Optic parameters calcualted!\n")
+  }
+  
   return(dphi_Ps_CPDs %>% 
            dplyr::select(ID, mean.delta_phi.deg, mean.delta_phi.rad, P.mean, v.mean, CPD.mean) %>% 
            dplyr::rename(delta_phi.deg = mean.delta_phi.deg,
@@ -1180,8 +1173,4 @@ get_optic_properties <- function(df,
                          P = P.mean,
                          v = v.mean,
                          CPD = CPD.mean))
-  
-  if(verbose == TRUE){
-    cat("Optic parameters calcualted!\n")
-  }
 }

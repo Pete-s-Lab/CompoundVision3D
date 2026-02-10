@@ -38,7 +38,7 @@ align_pointcloud <- function(df,
                                           right = "right"),
                              priority = "RL"){   # "RL" (right–left first) or "AP" (anterior–posterior first)
   # # testing
-  # df = curr_point_cloud
+  # df = optics_df_with_LM
   # ref_x = "x"
   # ref_y = "y"
   # ref_z = "z"

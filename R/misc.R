@@ -73,13 +73,13 @@ set_up_folder_structure <- function(parent_folder = NULL,
   # define folder for to save corrected facet positions plus landmarks combined
   facets_landmarks_combined_folder <- "8_facets_landmarks_combined"
   
-  # define folder for to save rotated facet positions plus landmarks combined
-  facets_landmarks_combined_rotated_folder <- "9_facets_landmarks_rotated"
-  
   # define folder for to save infos of rotated facets
-  facet_infos_folder <- "10_facet_infos"
+  facet_infos_folder <- "9_facet_infos"
   
-  # define folder for for further analyses
+  # folder to store facets infos
+  facets_LMs_rotated_folder <- "10_facets_landmarks_rotated"
+  
+  # analyses folder
   analysis_folder <- "11_analyses"
   
   folders_to_create = c(raw_data_folder,
@@ -88,7 +88,7 @@ set_up_folder_structure <- function(parent_folder = NULL,
                         local_heights_folder, # local_heights_normalized_folder,
                         rough_clusters_folder, 
                         facet_candidate_folder, facet_positions_folder,
-                        facets_landmarks_combined_folder, facets_landmarks_combined_rotated_folder,
+                        facets_landmarks_combined_folder, facets_LMs_rotated_folder,
                         facet_infos_folder, analysis_folder)
   
   # Folder creation ---------------------------------------------------------
@@ -178,4 +178,11 @@ set_up_folder_structure <- function(parent_folder = NULL,
                sheetName = "EyeNotes",
                file =  excel_file_path)
   }
+  
+  if(verbose == TRUE){
+    cat("Folder structure:\n")
+    print(folders_to_create)
+  }
+  
+  return(folders_to_create)
 }

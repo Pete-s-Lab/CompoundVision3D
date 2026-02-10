@@ -139,12 +139,12 @@ find_local_heights <- function(df,
   #   This is a multi-threaded but may still take a while. Define number of cores to suit your system (cores = n).
   
   if(is.null(plot_file)){
-    df <- calculate_df(df = df,
+    df <- calculate_local_heights(df = df,
                        search_diam = facet_estimate*3,
                        cores = cores,
                        verbose = verbose)
   } else{
-    df <- calculate_df(df = df,
+    df <- calculate_local_heights(df = df,
                        search_diam = facet_estimate*3,
                        cores = cores,
                        plot_file = plot_file,
@@ -173,7 +173,7 @@ find_local_heights <- function(df,
   # if (verbose == TRUE) cat("*********************************\n")
   
   if (verbose == TRUE) cat("Normalizing local heights.\n")
-  df_norm <- normalize_df(df = df,
+  df_norm <- normalize_local_heights(df = df,
                           normalize_diam = facet_estimate,
                           column_to_normalize = "local_height_log", # "local_height" "local_height_log"
                           cores = cores,
@@ -211,6 +211,7 @@ threshold_high_points <- function(df,
                                   verbose = FALSE){
   
   # # testing
+  # df = local_heights
   # thresholds_file <- "./data/thresholds.log"
   # column1 = "x"
   # column2 = "y"
@@ -219,6 +220,7 @@ threshold_high_points <- function(df,
   # final_threshold = 5
   # cores = 18
   # plot_results = TRUE
+  # plot_file = gsub("csv$", "pdf", file_name_out)
   # verbose = TRUE
   
   # Dependencies ------------------------------------------------------------
@@ -261,39 +263,39 @@ threshold_high_points <- function(df,
   # #   or log-transformed, quantile-filtered values ("local_height_log"), local_height_log_norm
   
   
-  # plot eye in 'SEM colors'
-  if(plot_results == TRUE){
-    # get columns with highest ranges translations
-    column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
-    names(column_ranges) <- c("x","y","z")
-    column_trans <- names(sort(column_ranges))[2]
-    plot3d(df %>% 
-             select(x,y,z), 
-           col = df %>% 
-             pull(local_height_col), # gsub("_height", "_height_col", height_column)
-           aspect = "iso",
-           size=5)
-    points3d(df %>% 
-               select(x,y,z) %>% 
-               mutate(!!as.symbol(column_trans) := 
-                        !!as.symbol(column_trans) +
-                        max(!!as.symbol(column_trans)) +  
-                        0.2 * diff(range(!!as.symbol(column_trans)))), 
-             col = df %>% 
-               pull(local_height_log_col), # gsub("_height", "_height_col", height_column)
-             aspect = "iso",
-             size=5)
-    points3d(df %>% 
-               select(x,y,z) %>% 
-               mutate(!!as.symbol(column_trans) := 
-                        !!as.symbol(column_trans) +
-                        2 * max(!!as.symbol(column_trans)) +  
-                        2 * 0.2 * diff(range(!!as.symbol(column_trans)))), 
-             col = df %>% 
-               pull(local_height_log_norm_col), # gsub("_height", "_height_col", height_column)
-             aspect = "iso",
-             size=5)
-  }
+  # # plot eye in 'SEM colors'
+  # if(plot_results == TRUE){
+  #   # get columns with highest ranges translations
+  #   column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
+  #   names(column_ranges) <- c("x","y","z")
+  #   column_trans <- names(sort(column_ranges))[2]
+  #   plot3d(df %>% 
+  #            select(x,y,z), 
+  #          col = df %>% 
+  #            pull(local_height_col), # gsub("_height", "_height_col", height_column)
+  #          aspect = "iso",
+  #          size=5)
+  #   points3d(df %>% 
+  #              select(x,y,z) %>% 
+  #              mutate(!!as.symbol(column_trans) := 
+  #                       !!as.symbol(column_trans) +
+  #                       max(!!as.symbol(column_trans)) +  
+  #                       0.2 * diff(range(!!as.symbol(column_trans)))), 
+  #            col = df %>% 
+  #              pull(local_height_log_col), # gsub("_height", "_height_col", height_column)
+  #            aspect = "iso",
+  #            size=5)
+  #   points3d(df %>% 
+  #              select(x,y,z) %>% 
+  #              mutate(!!as.symbol(column_trans) := 
+  #                       !!as.symbol(column_trans) +
+  #                       2 * max(!!as.symbol(column_trans)) +  
+  #                       2 * 0.2 * diff(range(!!as.symbol(column_trans)))), 
+  #            col = df %>% 
+  #              pull(local_height_log_norm_col), # gsub("_height", "_height_col", height_column)
+  #            aspect = "iso",
+  #            size=5)
+  # }
   
   height_column <- "local_height_log_norm" # local_height_log local_height_log_norm
   
@@ -328,29 +330,28 @@ threshold_high_points <- function(df,
     curr_threshold = final_threshold
     
     # filter data according to threshold
-    df <- df %>% 
+    df_thresh <- df %>% 
       filter(!!as.symbol(height_column) >= curr_threshold) %>% 
       select(x,y,z)
     
-    if(nrow(df) > 65536){
-      warning("Number (", nrow(df), ") should not exceed 65536.\nRemove ", nrow(df)-65536, " points or split data.")
+    if(nrow(df_thresh) > 65536){
+      warning("Number (", nrow(df_thresh), ") should not exceed 65536.\nRemove ", nrow(df)-65536, " points or split data.")
     } else{
-      if(verbose == TRUE) cat(nrow(df), " points.\n")
+      if(verbose == TRUE) cat(nrow(df_thresh), " points.\n")
     }
     
     # plot eye in 'SEM colors'
     plot3d(df %>% 
              select(x,y,z), 
            col = df %>% 
-             pull(local_height_log_col), 
+             pull(local_height_log_norm_col), 
            aspect = "iso",
            size=10)
     
     # add clusters to plot
-    spheres3d(df, #%>% 
+    spheres3d(df_thresh, #%>% 
               # slice(110000:111000), 
               col = "orange", 
-              aspect = "iso",
               radius = 2.5)
   }
   # ********************
@@ -367,8 +368,8 @@ threshold_high_points <- function(df,
             thresholds_file,
             progress = FALSE)
   
-  if(verbose == TRUE) cat("All done!\n")
-  return(df)
+  if(verbose == TRUE) cat("Thresholding done!\n")
+  return(df_thresh)
 }
 
 
@@ -1032,41 +1033,6 @@ get_optic_parameters <- function(df,
     left_join(df_neighbours, 
               by = "ID")
   
-  # # create color range for plotting
-  # cols.no.neighbours <- continuous_color_ramp(df_w_neighbours$number.of.neighbours,
-  #                                             viridis(n=6))
-  # # df$cols_no_neighbours <- cols.no.neighbours
-  # 
-  # cols.size <- continuous_color_ramp(df_w_neighbours$size, 
-  #                                    viridis((n=9)))
-  # 
-  # # plot results
-  # if(plot_results == TRUE){
-  #   plot3d(df_w_neighbours %>%
-  #            select(x,y,z),
-  #          radius = df_w_neighbours$size,
-  #          col = cols.no.neighbours,
-  #          type="s",
-  #          label = TRUE,
-  #          aspect = "iso") # , alpha = 0.2
-  #   bbox3d(alpha = 0.0, xlab="NULL")
-  #   bg3d(sphere = TRUE, color = "transparent")
-  #   
-  #   plot3d(df_w_neighbours %>% 
-  #            select(x,y,z),
-  #          radius =  df_w_neighbours$size, # df$size, # 10, #
-  #          type="s",
-  #          label = TRUE,
-  #          aspect = "iso",
-  #          col = cols.size)
-  #   bbox3d(alpha = 0.0, xlab="NULL")
-  #   bg3d(sphere = TRUE, color = "transparent")
-  # }
-  
-  # print("Saving rotated data png...")
-  # # rgl.snapshot(file.path("data/1_pre_STLs/CV0002_Adult_Drosohila_1.2um_zsc50/CV0002_Adult_Drosohila_1.2um_zsc50_eye2/stl/imgs", paste0("neighbors_", curr_CV, ".png")))
-  
-  
   
   # calculate facet normals according to their neighbors
   df_normals <- get_facet_normals(df = df_w_neighbours,
@@ -1091,7 +1057,6 @@ get_optic_parameters <- function(df,
                                                             "_optics_parameters", 
                                                             plot_file),
                                            verbose = TRUE)
-  
   
   # add results to tibble
   df_w_optic_parameters <- df_w_normals %>% 

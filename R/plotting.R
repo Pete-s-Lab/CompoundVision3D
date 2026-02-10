@@ -405,14 +405,13 @@ make_segments <- function(df,
 #' xxx: add example and change above parameter description
 #' 
 plot_optic_parameters <- function(df,
-                                  plot_file = file.path(facet_infos_folder, 
-                                                        gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name))),
+                                  plot_file = NULL,
                                   plot_resuts = FALSE,
                                   verbose = FALSE){
-  # testing
-  df = optics_df
-  plot_file = file.path(facet_infos_folder, 
-                        gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name)))
+  # # testing
+  # df = optics_df
+  # plot_file = file.path(facet_infos_folder, 
+  #                       gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name)))
   
   # # # size
   curr_variable <- "facet size"
