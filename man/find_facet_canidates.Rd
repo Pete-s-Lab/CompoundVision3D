@@ -13,6 +13,7 @@ find_facet_canidates(
   column1 = NULL,
   column2 = NULL,
   n_steps = 100,
+  trials = 9,
   plot_file = NULL,
   verbose = FALSE
 )

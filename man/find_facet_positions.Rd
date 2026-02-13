@@ -7,9 +7,10 @@
 find_facet_positions(
   df,
   local_heights,
-  h_min = 46.127,
-  h_max = 16.287,
-  h_final = 23.873,
+  h_min = 40,
+  h_max = 16,
+  h_final = 10,
+  trials = 9,
   column1 = NULL,
   column2 = NULL,
   cutoffs_file,

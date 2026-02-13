@@ -199,6 +199,7 @@ find_facet_canidates <- function(df,
                                  column1 = NULL,
                                  column2 = NULL,
                                  n_steps = 100,
+                                 trials = 9,
                                  plot_file = NULL,
                                  verbose = FALSE){
   
@@ -383,7 +384,7 @@ find_facet_canidates <- function(df,
   
   
   # define range in which to look for cutoffs
-  cutoff_range <- seq(h_max,h_min,length.out=9)
+  cutoff_range <- seq(h_max,h_min,length.out=trials)
   cutoff_range <- cutoff_range[cutoff_range >= 1]
   
   # plot ranges
