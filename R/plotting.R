@@ -354,7 +354,7 @@ rotate_rgl_to_vector <- function(direction_vector) {
 #' @param df A `tibble` with the data columns (`x,y,z`) and the normal columns 
 #' (`norm.x,norm.y,norm.z`)
 #' @param vector_length_multipler a `numeric` value to change the length of the 
-#' plotted vecots. Default: `3`.
+#' plotted vectors. Default: `3`.
 #' 
 #' @return xxx
 #'
@@ -363,28 +363,47 @@ rotate_rgl_to_vector <- function(direction_vector) {
 #' xxx: add example and change above parameter description
 #' 
 make_segments <- function(df,
-                          vector_length_multipler = 3){
-  x_start <- df %>% pull(x)
-  y_start <- df %>% pull(y)
-  z_start <- df %>% pull(z)
+                          vector_length_multipler = 1,
+                          start_colums = c(1:3),
+                          end_colums = c(4:6),
+                          lwd = 1,
+                          colors = "blue"){
   
-  x_end <- df %>% pull(x) + df %>%
-    pull(norm.x)*vector_length_multipler*(mean(df %>% pull(size), na.rm = TRUE))
-  y_end <- df %>% pull(y) + df %>%
-    pull(norm.y)*vector_length_multipler*(mean(df %>% pull(size), na.rm = TRUE))
-  z_end <- df %>% pull(z) + df %>%
-    pull(norm.z)*vector_length_multipler*(mean(df %>% pull(size), na.rm = TRUE))
+  # # testing
+  # df = facets %>%
+  #   slice(4500:4600)
+  # vector_length_multipler = .1 # corneal_projection_sphere_radius_cm
+  # start_colums = c(3:5)
+  # end_colums = c(29:31)
+  # lwd = .01
+  # colors = facets %>% 
+  #   slice(4500:4600) %>% 
+  #   pull(size_corr_cols)
+  
+  colors_paired = rep(colors, each = 2)
+  
+  x_start <- df %>% pull(start_colums[1])
+  y_start <- df %>% pull(start_colums[2])
+  z_start <- df %>% pull(start_colums[3])
+  
+  x_end <- x_start + df %>%
+    pull(end_colums[1]) * vector_length_multipler
+  y_end <- y_start + df %>%
+    pull(end_colums[2])*vector_length_multipler
+  z_end <- z_start + df %>%
+    pull(end_colums[3])*vector_length_multipler
   
   # Combine start and end points into a single vector
-  segments <- cbind(x_start, y_start, z_start, x_end, y_end, z_end)
+  segments <- cbind(x_start, y_start, z_start, 
+                    x_end, y_end, z_end)
   
   segments3d(x=as.vector(t(segments[,c(1,4)])),
              y=as.vector(t(segments[,c(2,5)])),
              z=as.vector(t(segments[,c(3,6)])),
-             col = viridis(n=6)[4],
-             lwd=5)
+             lwd=lwd,
+             col = colors_paired)
   
-  segments
+  # return(segments)
 }
 
 

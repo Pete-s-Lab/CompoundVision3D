@@ -531,450 +531,6 @@ find_facet_positions <- function(df,
 
 
 
-#' Rotate and translate facet positions according to the global coordinate system
-#'
-#' XYZ: create description and param defs
-#'
-#' @param df A tibble containing coordinates and IDs.
-#' @return Returns a tibble with the aligned coordinates in columns defined by
-#' `x_col, y_col, z_col`.
-#'
-#' @export
-#' @examples
-#' xxx: add example and change above descsriptionand parameters
-#'
-rotate_and_translate_to_global <- function(df,
-                                           facet_estimate = 14,
-                                           cores = 18,
-                                           plot_results = TRUE,
-                                           verbose = TRUE){
-  curr_file = file_list_facets_LMs[CV]
-  print(curr_file)
-  
-  curr_CV <- gsub("^CV(\\d+)_.+", "\\1", curr_file)
-  curr_eye <- gsub("^.+eye(\\d+)_.+$", "\\1", curr_file)
-  
-  # get current facet size estimate
-  curr_facet_estimate <- eye_infos_df %>%
-    filter(CV == curr_CV, eye == curr_eye) %>% 
-    pull(facet_size_estimate)
-  
-  # load all data
-  curr_data <- read_csv(file.path(facets_landmarks_combined, curr_file),
-                        show_col_types = FALSE)
-  
-  # get data of facets
-  curr_facets <- curr_data %>% 
-    filter(type == "facet")
-  
-  # get data of LMs
-  curr_LMs <- curr_data %>% 
-    filter(type == "LM")
-  
-  # get data for left eye
-  eye_L <- curr_facets %>% 
-    mutate(facet = row_number(),
-           ID = paste0("L_", ID)) %>%
-    select(c(ncol(.), 1:(ncol(.)-1)))
-  
-  # # do the next calculations only for left eye and mirror results to right eye
-  
-  # detach("package:CompoundVision3D", unload=TRUE)
-  # install.packages("CompoundVision3D")
-  library(CompoundVision3D)
-  
-  neighbours <- find_neighbours(df = eye_L,
-                                facet_size <- curr_facet_estimate,
-                                cores = 12,
-                                plot_file = file.path(facet_infos, 
-                                                      gsub("_facets_LMs_combined.csv", "_neighbour_and_size_data.pdf", curr_file)),
-                                verbose = TRUE)
-  
-  # add results to tibble
-  eye_L <- eye_L %>% 
-    left_join(neighbours, by = "facet")
-  
-  # create color range for plotting
-  cols.no.neighbours <- continuous_color_ramp(eye_L$number.of.neighbours,
-                                              viridis(n=6))
-  # eye_L$cols_no_neighbours <- cols.no.neighbours
-  
-  cols.size <- continuous_color_ramp(eye_L$size, 
-                                     viridis((n=9)))
-  
-  # plot results
-  plot3d(eye_L %>%
-           select(x,y,z),
-         radius = eye_L$size,
-         col = cols.no.neighbours,
-         type="s",
-         label = TRUE,
-         aspect = "iso") # , alpha = 0.2
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  plot3d(eye_L %>% 
-           select(x,y,z),
-         radius =  eye_L$size, # eye_L$size, # 10, #
-         type="s",
-         label = TRUE,
-         aspect = "iso",
-         col = cols.size)
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  
-  # print("Saving rotated data png...")
-  # # rgl.snapshot(file.path("data/1_pre_STLs/CV0002_Adult_Drosohila_1.2um_zsc50/CV0002_Adult_Drosohila_1.2um_zsc50_eye2/stl/imgs", paste0("neighbors_", curr_CV, ".png")))
-  
-  
-  
-  # calculate facet normals according to their neighbors
-  eye_L_normals <- get_facet_normals(df = eye_L,
-                                     cores = 12,
-                                     plot_file = file.path(facet_infos,
-                                                           gsub("_facets_LMs_combined.csv", "_normal_data.pdf", curr_file)),
-                                     verbose = TRUE)
-  
-  
-  
-  # add info to eye_L
-  eye_L <- eye_L %>% 
-    left_join(eye_L_normals, 
-              by="facet")
-  
-  
-  # calculateIF angle, P, CPD
-  optic_parameters <- get_optic_properties(df = eye_L,
-                                           cores = 12,
-                                           plot_file = file.path(facet_infos,
-                                                                 gsub("_facets_LMs_combined.csv", "_optic_parameters.pdf", curr_file)),
-                                           verbose = TRUE)
-  
-  # add results to tibble
-  eye_L <- eye_L %>% 
-    left_join(optic_parameters, by = "facet")
-  
-  # define viridis colours for the different parameters
-  cols_to_use <- viridis(n=100, begin = 0, end = 1)
-  
-  eye_L <- eye_L %>% 
-    arrange(facet) %>% 
-    mutate(size_cols = continuous_color_ramp(eye_L$size,cols_to_use)) %>% 
-    mutate(P_cols = continuous_color_ramp(eye_L$P,cols_to_use)) %>% 
-    mutate(v_cols = continuous_color_ramp(eye_L$v,cols_to_use)) %>% 
-    mutate(CPD_cols = continuous_color_ramp(eye_L$CPD,cols_to_use)) %>% 
-    mutate(delta_phi.deg_cols = continuous_color_ramp(eye_L$delta_phi.deg,cols_to_use)) %>% 
-    mutate(number_of_neighs_cols = continuous_color_ramp(eye_L$number.of.neighbours,cols_to_use))
-  
-  
-  # # add right eye
-  # eye_R <- eye_L %>% 
-  #   mutate(x = -1*x,
-  #          norm.x = -1*norm.x,
-  #          facet = row_number() + nrow(eye_L),
-  #          ID = gsub("^L_", "R_", ID))
-  # 
-  # # combine eyes
-  # both_eyes <- rbind(eye_L,
-  #                    eye_R)
-  
-  # save eye infos
-  write_csv(as.data.frame(eye_L),
-            file.path(facet_infos, gsub("_facets_LMs_combined", "_facet_infos", curr_file)))
-  
-  # save landmark infos
-  write_csv(as.data.frame(curr_LMs),
-            file.path(facet_infos, gsub("_facets_LMs_combined", "_landmarks", curr_file)))
-  
-  
-  
-  
-  
-  # plot eye varaibles ------------------------------------------------------  
-  # # # size
-  curr_variable <- "facet size"
-  close3d()
-  # mean size
-  plot3d(both_eyes %>% 
-           select(x,y,z), 
-         radius = both_eyes$size,
-         # size = mean(both_eyes$size)*1.2, 
-         col = both_eyes$size_cols, 
-         type="s",
-         label = T, 
-         add = F, 
-         aspect = "iso")
-  
-  spheres3d(curr_LMs %>% select(x,y,z),
-            col="blue", radius=mean(c(dist(range(eye_L$x)),dist(range(eye_L$y)),dist(range(eye_L$z))))/20)
-  text3d(curr_LMs %>% select(x,y,z),
-         texts = curr_LMs$ID)
-  
-  title3d(paste0(gsub("_rotated_facets\\.csv", "", curr_file), ": ", curr_variable),
-          col = 'black', line = 5)
-  
-  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
-                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
-                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
-                      0, 0, 0, 0, 1), dim = c(4L, 4L))
-  par3d(windowRect = c(20, 30, 1600, 1600),
-        userMatrix = view)
-  
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  print("Saving rotated data as png...")
-  curr_output_file_name <- gsub("rotated_facets", "1_size", curr_file)
-  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
-  rgl.snapshot(file.path(facet_infos, gsub('.csv', '.png', curr_output_file_name)), fmt = 'png')
-  
-  # draw vectors
-  vec.mult <- 3
-  
-  plot3d(both_eyes %>% 
-           select(x,y,z), 
-         radius = both_eyes$size,
-         # size = mean(both_eyes$size)*1.2, 
-         col = both_eyes$size_cols, 
-         type="s",
-         label = T, 
-         add = F, 
-         aspect = "iso")
-  
-  x_start <- both_eyes %>% pull(x)
-  y_start <- both_eyes %>% pull(y)
-  z_start <- both_eyes %>% pull(z)
-  
-  x_end <- both_eyes %>% pull(x) + both_eyes %>%
-    pull(norm.x)*vec.mult*(mean(both_eyes %>% pull(size)))
-  y_end <- both_eyes %>% pull(y) + both_eyes %>%
-    pull(norm.y)*vec.mult*(mean(both_eyes %>% pull(size)))
-  z_end <- both_eyes %>% pull(z) + both_eyes %>%
-    pull(norm.z)*vec.mult*(mean(both_eyes %>% pull(size)))
-  
-  # Combine start and end points into a single vector
-  segments <- cbind(x_start, y_start, z_start, x_end, y_end, z_end)
-  segments3d(x=as.vector(t(segments[,c(1,4)])),
-             y=as.vector(t(segments[,c(2,5)])),
-             z=as.vector(t(segments[,c(3,6)])),
-             col = "purple")
-  
-  # for checking
-  curr_eye <- both_eyes %>%
-    filter(grepl("^L_", ID)) %>%
-    filter(z<(-500))
-  plot3d(curr_eye %>% 
-           select(x,y,z),
-         # radius = 7, #curr_eye$size,
-         size = 15, #mean(both_eyes$size)*1.2,
-         col = curr_eye$size_cols,
-         # type="s",
-         label = T,
-         add = F,
-         aspect = "iso")
-  
-  
-  text3d(curr_eye %>%
-           select(x,y,z),
-         texts = both_eyes %>%
-           pull(ID),
-         cex=1,
-         pos = 1)
-  
-  x_start <- both_eyes %>% filter(grepl("^L_", ID)) %>% pull(x)
-  y_start <- both_eyes %>% filter(grepl("^L_", ID)) %>% pull(y)
-  z_start <- both_eyes %>% filter(grepl("^L_", ID)) %>% pull(z)
-  
-  x_end <- both_eyes %>% filter(grepl("^L_", ID)) %>% pull(x) + both_eyes %>%
-    filter(grepl("^L_", ID)) %>% pull(norm.x)*vec.mult*(mean(both_eyes %>% filter(grepl("^L_", ID)) %>% pull(size)))
-  y_end <- both_eyes %>% filter(grepl("^L_", ID)) %>% pull(y) + both_eyes %>%
-    filter(grepl("^L_", ID)) %>% pull(norm.y)*vec.mult*(mean(both_eyes %>% filter(grepl("^L_", ID)) %>% pull(size)))
-  z_end <- both_eyes %>% filter(grepl("^L_", ID)) %>% pull(z) + both_eyes %>%
-    filter(grepl("^L_", ID)) %>% pull(norm.z)*vec.mult*(mean(both_eyes %>% filter(grepl("^L_", ID)) %>% pull(size)))
-  
-  # Combine start and end points into a single vector
-  segments <- cbind(x_start, y_start, z_start, x_end, y_end, z_end)
-  segments3d(x=as.vector(t(segments[,c(1,4)])),
-             y=as.vector(t(segments[,c(2,5)])),
-             z=as.vector(t(segments[,c(3,6)])),
-             col = "purple")
-  
-  
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  
-  
-  # print("Saving rotated data as png...")
-  curr_output_file_name <- gsub("rotated_facets", "1_size", curr_file)
-  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
-  rgl.snapshot(file.path(facet_infos, gsub('.csv', '_vectors.png', curr_output_file_name)), fmt = 'png')
-  
-  # mean delta.phi.deg
-  curr_variable <- "IF angle"
-  close3d()
-  plot3d(both_eyes %>%
-           select(x,y,z),
-         radius = both_eyes$size,
-         # size = mean(both_eyes$size)*1.2, 
-         col = eye_L$delta_phi.deg_cols,
-         type="s",
-         label = T,
-         add = F,
-         aspect = "iso")
-  
-  spheres3d(curr_LMs %>% select(x,y,z),
-            col="blue", radius=mean(c(dist(range(eye_L$x)),dist(range(eye_L$y)),dist(range(eye_L$z))))/20)
-  text3d(curr_LMs %>% select(x,y,z),
-         texts = curr_LMs$ID)
-  
-  title3d(paste0(gsub("_rotated_facets\\.csv", "", curr_file), ": ", curr_variable),
-          col = 'black', line = 5)
-  
-  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
-                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
-                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
-                      0, 0, 0, 0, 1), dim = c(4L, 4L))
-  par3d(windowRect = c(20, 30, 1600, 1600),
-        userMatrix = view)
-  
-  
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  # print("Saving rotated data as png...")
-  curr_output_file_name <- gsub("rotated_facets", "2_IF_angle", curr_file)
-  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
-  rgl.snapshot(file.path(facet_infos, gsub('.csv', '.png', curr_output_file_name)), fmt = 'png')
-  
-  
-  # mean P
-  curr_variable <- "eye parameter (P)"
-  close3d()
-  
-  plot3d(both_eyes %>%
-           select(x,y,z),
-         radius = both_eyes$size,
-         # size = mean(both_eyes$size)*1.2, 
-         col = eye_L$P_cols,
-         type="s",
-         label = T,
-         aspect = "iso")
-  
-  spheres3d(curr_LMs %>% select(x,y,z),
-            col="blue", radius=mean(c(dist(range(eye_L$x)),dist(range(eye_L$y)),dist(range(eye_L$z))))/20)
-  text3d(curr_LMs %>% select(x,y,z),
-         texts = curr_LMs$ID)
-  
-  title3d(paste0(gsub("_rotated_facets\\.csv", "", curr_file), ": ", curr_variable),
-          col = 'black', line = 5)
-  
-  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
-                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
-                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
-                      0, 0, 0, 0, 1), dim = c(4L, 4L))
-  par3d(windowRect = c(20, 30, 1600, 1600),
-        userMatrix = view)
-  
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  # print("Saving rotated data as png...")
-  curr_output_file_name <- gsub("rotated_facets", "3_P", curr_file)
-  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
-  rgl.snapshot(file.path(facet_infos, gsub('.csv', '.png', curr_output_file_name)), fmt = 'png')
-  
-  
-  # mean CPD
-  curr_variable <- "cycles per degree (CPD)"
-  close3d()
-  plot3d(both_eyes %>%
-           select(x,y,z),
-         radius = both_eyes$size,
-         # size = mean(both_eyes$size)*1.2, 
-         col = eye_L$CPD_cols,
-         type="s",
-         label = T,
-         aspect = "iso")
-  
-  spheres3d(curr_LMs %>% select(x,y,z),
-            col="blue", radius=mean(c(dist(range(eye_L$x)),dist(range(eye_L$y)),dist(range(eye_L$z))))/20)
-  text3d(curr_LMs %>% select(x,y,z),
-         texts = curr_LMs$ID)
-  
-  title3d(paste0(gsub("_rotated_facets\\.csv", "", curr_file), ": ", curr_variable),
-          col = 'black', line = 5)
-  
-  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
-                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
-                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
-                      0, 0, 0, 0, 1), dim = c(4L, 4L))
-  par3d(windowRect = c(20, 30, 1600, 1600),
-        userMatrix = view)
-  
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  # print("Saving rotated data as png...")
-  curr_output_file_name <- gsub("rotated_facets", "4_CPD", curr_file)
-  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
-  rgl.snapshot(file.path(facet_infos, gsub('.csv', '.png', curr_output_file_name)), fmt = 'png')
-  
-  # of neighbours
-  curr_variable <- "# of neighbours"
-  close3d()
-  plot3d(eye_L %>%
-           select(x,y,z),
-         radius = eye_L$size,
-         col = eye_L$number_of_neighs_cols,
-         type="s",
-         label = T,
-         aspect = "iso")
-  
-  title3d(paste0(gsub("_rotated_facets\\.csv", "", curr_file), ": ", curr_variable),
-          col = 'black', line = 5)
-  
-  view <- structure(c(0.800687074661255, -0.15804435312748, 0.577858686447144, 
-                      0, 0.598479747772217, 0.254242211580276, -0.759724497795105, 
-                      0, -0.0268459133803844, 0.954138934612274, 0.298155069351196, 
-                      0, 0, 0, 0, 1), dim = c(4L, 4L))
-  par3d(windowRect = c(20, 30, 1600, 1600),
-        userMatrix = view)
-  
-  bbox3d(alpha = 0.0, xlab="NULL")
-  bg3d(sphere = TRUE, color = "transparent")
-  
-  # print("Saving rotated data as png...")
-  curr_output_file_name <- gsub("rotated_facets", "0_no_of_neighbors", curr_file)
-  # rgl.postscript(file.path(facet_infos, paste0(curr_output_file_name, '.pdf')), fmt = 'svg')
-  rgl.snapshot(file.path(facet_infos, gsub('.csv', '.png', curr_output_file_name)), fmt = 'png')
-  
-  
-  # 
-  # # draw vectors
-  # vec.mult <- mean(eye_L$size)*10
-  # for(curr_facet in 1:nrow(eye_L)){ # nrow(eye_L)
-  #   normal_vectors_df_subset <- eye_L %>%
-  #     filter(facet == curr_facet) %>%
-  #     select(norm.x, norm.y, norm.z)
-  #   curr_facet_coordinates <- eye_L %>% filter(facet==curr_facet) %>% select(x,y,z)
-  # 
-  #   # find mean point of normalized normal vector ends
-  #   norm.y <- normal_vectors_df_subset$norm.y
-  #   norm.z <- normal_vectors_df_subset$norm.z
-  # 
-  #   lines3d(x = c(curr_facet_coordinates %>% pull(x), curr_facet_coordinates %>% pull(x) + norm.x*vec.mult),
-  #           y = c(curr_facet_coordinates %>% pull(y), curr_facet_coordinates %>% pull(y) + norm.y*vec.mult),
-  #           z = c(curr_facet_coordinates %>% pull(z), curr_facet_coordinates %>% pull(z) + norm.z*vec.mult),
-  #           col = eye_L %>%
-  #             filter(facet == curr_facet) %>%
-  #             select(delta_phi.deg_cols ))
-  # }
-  print("*******************************")
-}
-
-
-
 #' Calculate optic parameters for eye
 #'
 #' XYZ: create description and param defs
@@ -990,7 +546,6 @@ rotate_and_translate_to_global <- function(df,
 
 get_optic_parameters <- function(df,
                                  plot_file = NULL,
-                                 facet_estimate = 14,
                                  cores = 18,
                                  plot_results = FALSE,
                                  verbose = FALSE){
@@ -999,7 +554,6 @@ get_optic_parameters <- function(df,
   # df = LMs_facets_combined
   # plot_file = file.path(facet_infos_folder,
   #                       gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name)))
-  # facet_estimate = 14
   # cores = 18
   # plot_results = TRUE
   # verbose = TRUE
@@ -1012,32 +566,54 @@ get_optic_parameters <- function(df,
   curr_LMs <- df %>% 
     filter(type == "LM")
   
-  # # get data for left eye
-  # eye_L <- curr_facets %>% 
-  #   mutate(facet = row_number(),
-  #          ID = paste0("L_", ID)) %>%
-  #   select(c(ncol(.), 1:(ncol(.)-1)))
-  
-  # # do the next calculations only for left eye and mirror results to right eye
+  # df_neighbours <- find_neighbours(df = curr_facets,
+  #                                  facet_size = facet_estimate,
+  #                                  neighbour_threshold = 1.5,
+  #                                  cores = cores,
+  #                                  plot_results = plot_results,
+  #                                  plot_file = plot_file,
+  #                                  verbose = verbose)
   
   df_neighbours <- find_neighbours(df = curr_facets,
-                                   facet_size = facet_estimate,
-                                   neighbour_threshold = 1.5,
-                                   cores = cores,
-                                   plot_results = plot_results,
-                                   plot_file = plot_file,
-                                   verbose = verbose)
-  
+                                   edge_tol = 0.5)
   
   
   # add results to tibble
   df_w_neighbours <- curr_facets %>% 
-    left_join(df_neighbours, 
+    left_join(df_neighbours %>% 
+                select(-c(x,y,z,type)), 
               by = "ID")
   
+  facet_sizes <- calculate_facet_size(df_w_neighbours)
   
-  # calculate facet normals according to their neighbors
-  df_normals <- get_facet_normals(df = df_w_neighbours,
+  
+  
+  df_w_sizes <- left_join(df_w_neighbours,
+                          facet_sizes %>% 
+                            select(-n_used),
+                          by = "ID") %>% 
+    rename(size = facet_size)
+  
+  
+  # #   check:
+  #   plot3d(df_w_sizes %>% 
+  #            select(x,y,z),
+  #          col = df_w_sizes$number_of_neighs_cols,
+  #          type="s",
+  #          radius = df_w_sizes$size,
+  #          aspect = "iso")
+  #   
+  #   
+  #   texts3d(df_w_sizes  %>% 
+  #             select(x,y,z),
+  #           texts = df_w_sizes  %>% 
+  #             pull(ID),
+  #           pos=1,
+  #           cex = .7)
+  
+  
+  # calculate facet normals according to their neighbours
+  df_normals <- get_facet_normals(df = df_w_sizes,
                                   cores = cores,
                                   plot_file = gsub("_neighbour_and_size_data", 
                                                    "_normal_data", 
@@ -1045,11 +621,27 @@ get_optic_parameters <- function(df,
                                   verbose = TRUE)
   
   
+  
+  
   # add info to df
-  df_w_normals <- df_w_neighbours %>% 
+  df_w_normals <- df_w_sizes %>% 
     left_join(df_normals, 
               by="ID")
   
+  
+  # #   check:
+  # plot3d(df_w_normals %>%
+  #          select(x,y,z),
+  #        col = df_w_normals$number_of_neighs_cols,
+  #        type="s",
+  #        radius = df_w_normals$size,
+  #        aspect = "iso")
+  # 
+  # 
+  # make_segments(df = df_w_normals,
+  #               start_colums = c(2,3,4),
+  #               end_colums = c(10,11,12),
+  #               vector_length_multipler = 500)
   
   # calculateIF angle, P, CPD
   optic_parameters <- get_optic_properties(df = df_w_normals,
@@ -1061,8 +653,26 @@ get_optic_parameters <- function(df,
                                            verbose = TRUE)
   
   # add results to tibble
-  df_w_optic_parameters <- df_w_normals %>% 
+  df_w_optic_parameters <- df_w_sizes %>% 
     left_join(optic_parameters, by = "ID")
+  
+  
+  # #   check:
+  # plot3d(df_w_optic_parameters %>%
+  #          select(x,y,z),
+  #        col = df_w_optic_parameters$number_of_neighs_cols,
+  #        type="s",
+  #        radius = df_w_optic_parameters$size,
+  #        aspect = "iso")
+  # 
+  # 
+  # texts3d(df_w_optic_parameters  %>%
+  #           select(x,y,z),
+  #         texts = df_w_optic_parameters  %>%
+  #           pull(ID),
+  #         pos=1,
+  #         cex = .7)
+  
   
   # define viridis colours for the different parameters
   cols_to_use <- viridis(n=100, begin = 0, end = 1)
@@ -1099,5 +709,369 @@ get_optic_parameters <- function(df,
                                                            pull(number.of.neighbours),
                                                          cols_to_use))
   
+  
+  # #   check:
+  # plot3d(df_w_plot_cols %>%
+  #          select(x,y,z),
+  #        # col = df_w_plot_cols$number_of_neighs_cols,
+  #        # col = df_w_plot_cols$delta_phi.deg_cols,
+  #        col = df_w_plot_cols$CPD_cols,
+  #        type="s",
+  #        radius = df_w_plot_cols$size,
+  #        aspect = "iso")
+  # 
+  # 
+  # texts3d(df_w_plot_cols  %>%
+  #           select(x,y,z),
+  #         texts = df_w_plot_cols  %>%
+  #           pull(ID),
+  #         pos=1,
+  #         cex = .7)
+  
   return(df_w_plot_cols)
+}
+
+
+
+#' Normalize data of all eyes
+#'
+#' XYZ: create description and param defs
+#'
+#' @param df A tibble containing coordinates and IDs.
+#' @return Returns a tibble with the aligned coordinates in columns defined by
+#' `x_col, y_col, z_col`.
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above descsriptionand parameters
+#'
+normalize_eye_data <- function(df,
+                               info_table = CompVisTab, 
+                               plot_results = FALSE){
+  
+  # # testing
+  # df = df_all
+  # info_table = info_table
+  # plot_results = TRUE
+  
+  # for viridis colours
+  require(viridis)
+  
+  # fast csv writing and reading
+  require(readr)
+  
+  # load tidyverse for its various conveniences
+  require(dplyr)
+  rename <- dplyr::rename
+  
+  # functions
+  
+  ## -------------------------------------------------------------------------
+  ## General variable definitions
+  
+  ## -------------------------------------------------------------------------
+  
+  
+  
+  # add CV number to df_all
+  df_all <- df %>% 
+    mutate(CV = gsub("^CV(.{4}).*", "\\1", df_all$filename), 
+           .before = ID) %>% 
+    # arrange(CV, ID)
+    arrange(CV, order(gtools::mixedorder(ID)))
+  
+  # add species to df_all
+  df_all <- df_all %>% 
+    left_join(info_table %>% 
+                mutate(taxon = paste(CV, genus, species)) %>% # CV, subfamily, tribe, 
+                select(CV, taxon) %>% # , subfamily, tribe
+                distinct(), by = "CV")
+  
+  # define analyis variables
+  directions <- c("latitude", "longitude")
+  analysis_variables <- c("size", "delta_phi.deg", "P", "CPD")
+  analysis_variables_indices <- paste0(0, 1:4)
+  
+  
+  # colorize all corrected data values with table-wide LUT
+  cols_to_use <- viridis(n=1000, begin = 0, end = 1)
+  
+  # first: remove outliers
+  df_all_corr <- NULL
+  
+  curr_CV <- unique(df_all$CV)[1]
+  for(curr_CV in unique(df_all$CV)){
+    curr_df_all <- df_all %>% 
+      filter(CV == curr_CV)
+    
+    curr_var <- analysis_variables[1]
+    for(curr_var in analysis_variables){
+      curr_values <- curr_df_all %>%  #unlist(df_all[,curr_var_col]) 
+        pull(get(!!!curr_var))
+      curr_NA_vals <- which(is.na(curr_values))
+      curr_values[curr_NA_vals] <- mean(curr_values, na.rm = TRUE)
+      
+      # find outliers and replace them by quantile values
+      curr_quantiles <- quantile(curr_values, c(.05, .95))
+      curr_values[curr_values<curr_quantiles[1]] <- curr_quantiles[1]
+      curr_values[curr_values>curr_quantiles[2]] <- curr_quantiles[2]
+      
+      curr_df_all <- curr_df_all %>% 
+        mutate(new_col = curr_values)
+      colnames(curr_df_all)[ncol(curr_df_all)] <- paste0(curr_var, "_corr")
+      
+      curr_df_all <- curr_df_all %>% 
+        mutate(new_col = continuous_color_ramp(curr_values,
+                                               cols_to_use))
+      colnames(curr_df_all)[ncol(curr_df_all)] <- paste0(curr_var, "_corr_cols")
+      
+      curr_df_all[curr_NA_vals,ncol(curr_df_all)] <- NA
+    }
+    df_all_corr <- rbind(df_all_corr, curr_df_all)
+  }
+  
+  # re-define variables to use outlier-free data
+  analysis_variables <- c("size_corr", "delta_phi.deg_corr", "P_corr", "CPD_corr")
+  curr_var <- analysis_variables[1]
+  for(curr_var in analysis_variables){
+    curr_values <- df_all_corr %>%
+      pull(get(!!!curr_var))
+    curr_NA_vals <- which(is.na(curr_values))
+    curr_values[curr_NA_vals] <- mean(curr_values, na.rm = TRUE)
+    
+    df_all_corr <- df_all_corr %>% 
+      mutate(new_col = continuous_color_ramp(curr_values,
+                                             cols_to_use))
+    colnames(df_all_corr)[ncol(df_all_corr)] <- paste0(curr_var, "_cols_all")
+    
+    curr_values[curr_NA_vals] <- NA
+  }
+  
+  
+  # plot to compare raw, outlier-free, and normalized data
+  if(plot_results == TRUE){
+    par(mfrow=c(3,1))
+    plot(df_all_corr %>%
+           filter(!is.na(size)) %>%
+           pull(x), col = df_all_corr$CPD_cols, pch=16)
+    plot(df_all_corr %>%
+           filter(!is.na(size)) %>%
+           pull(x), col = df_all_corr$CPD_corr_cols, pch=16)
+    plot(df_all_corr %>%
+           filter(!is.na(size)) %>%
+           pull(x), col = df_all_corr$CPD_corr_cols_all, pch=16)
+    par(mfrow=c(1,1))
+  }
+  
+  # add variables to info_table
+  # mean facet size
+  info_table <- info_table %>% 
+    left_join(df_all_corr %>% 
+                group_by(CV) %>% 
+                summarise(mean_facet_size = mean(size_corr, na.rm = TRUE)),
+              by = "CV")
+  
+  # mean IF angle
+  info_table <- info_table %>% 
+    left_join(df_all_corr %>% 
+                group_by(CV) %>% 
+                summarise(mean_IF_angle = mean(delta_phi.deg_corr, na.rm = TRUE)),
+              by = "CV")
+  # mean P
+  info_table <- info_table %>% 
+    left_join(df_all_corr %>% 
+                group_by(CV) %>% 
+                summarise(mean_P = median(P_corr, na.rm = TRUE)), # here!: mean-median
+              by = "CV")
+  
+  # mean V
+  info_table <- info_table %>% 
+    left_join(df_all_corr %>% 
+                group_by(CV) %>% 
+                summarise(mean_CPD = median(CPD_corr, na.rm = TRUE)), # here!: mean-median
+              by = "CV")
+  
+  # total surface area of eye using facet sizes
+  info_table <- info_table %>% 
+    left_join(df_all_corr %>% 
+                group_by(CV) %>% 
+                mutate(eye_surface_area = sum(calculate_hexagon_area(size_corr))) %>% 
+                select(CV, eye_surface_area) %>% 
+                distinct(),
+              by = "CV") 
+  
+  
+  # add eye surface area to df_all_corr
+  df_all_corr <- df_all_corr %>% 
+    left_join(info_table %>% 
+                distinct(CV, .keep_all = TRUE) %>%
+                select(CV, eye_surface_area),
+              by = "CV")
+  
+  # create new df from existing one. xxx: rename info_table even earlier, after initial loading
+  info_table_filtered <- info_table
+  
+  
+  # data cleaning -----------------------------------------------------------
+  df_all_corr_export <- df_all_corr %>% 
+    select(-c(filename ,
+              size, delta_phi.rad, delta_phi.deg, P, v, CPD, 
+              size_cols, P_cols, v_cols, CPD_cols, delta_phi.deg_cols, delta_phi.deg))
+  
+  return(list(info_table_filtered,
+              df_all_corr_export))
+}
+
+
+
+
+
+
+#' Calculate Corneal Projections
+#'
+#' XYZ: create description and param defs
+#'
+#' @param df A tibble containing coordinates and IDs.
+#' @return Returns a tibble with the aligned coordinates in columns defined by
+#' `x_col, y_col, z_col`.
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above descsriptionand parameters
+#'
+calculate_corneal_projections <- function(df,
+                                          cp_diam_cm,
+                                          verbose = FALSE){
+  # #   testing
+  # df = df_all_normalized
+  # cp_diam_cm = 100
+  # verbose = TRUE
+  
+  # General variable definitions
+  cp_area_um2 = 4*pi*((cp_diam_cm/2)*1000)^2
+  
+  
+  # corneal projections, FOV and Voronoi -----------------------------------------------------------------
+  
+  # add latitude and longitude columns
+  if(all(grepl("latitude", colnames(df)) == FALSE) == TRUE){
+    df$latitude <- NA
+    df$longitude <- NA
+  }
+  
+  # add corn. projection columns
+  if(all(grepl("corn.proj.x", colnames(df)) == FALSE) == TRUE){
+    df$corn.proj.x <- NA
+    df$corn.proj.y <- NA
+    df$corn.proj.z <- NA
+  }
+  
+  # df %>% 
+  #   distinct(CV) %>% 
+  #   print(n=999)
+  
+  k=1
+  for(k in 1:length(unique(df$CV))){ # 1:length(unique(df$CV))
+    # get current CV
+    curr_CV <- unique(df$CV)[k]
+    if(verbose == TRUE) cat(paste0("CV",curr_CV), "\n")
+    
+    # get data for each facet of current CV
+    curr_df <- df %>% 
+      filter(CV == curr_CV,
+             type == "facet") %>% 
+      select(-c(latitude, longitude))# %>%
+    
+    # calculate center of left eye
+    center_point_L <- c(mean(curr_df$x),
+                        mean(curr_df$y),
+                        mean(curr_df$z))
+    
+    
+    # define center of head - this is always the center od the global coord system
+    center_point_head <- c(0, 0, 0)
+    
+    # center between eyes; eye distance radius value
+    # define center of corneal projection sphere
+    #   this is exaclty between both eyes, so x=0:
+    sphere.c <- center_point_L
+    sphere.c[1] <- 0
+    
+    # calculate sphere radius in um
+    sphere.r = cp_diam_cm/2*1000 # abs(center_point_L[1]) + 
+    
+    # plot the eye with IF angle colors
+    plot3d(curr_df %>% 
+             select(x,y,z), 
+           radius = curr_df$size_corr, 
+           col = curr_df$CPD_corr_cols,
+           type="s", 
+           label = T, 
+           add = F, 
+           aspect = "iso")
+    
+    # add the landmarks in blue
+    spheres3d(df %>%
+                filter(CV == curr_CV,
+                       type == "LM") %>%
+                select(x,y,z),
+              radius = 2*mean(curr_df$size_corr), 
+              col="blue")
+    
+    # add corneal projection sphere
+    spheres3d(sphere.c, 
+              radius = sphere.r, 
+              col=rgb(0,0,0.3), alpha=0.05)
+    
+    
+    # calculate normal intersections with sphere left
+    if(verbose == TRUE) cat("Calculating corneal projection intersections...\n")
+    
+    curr_df$corn.proj.x <- NA
+    curr_df$corn.proj.y <- NA
+    curr_df$corn.proj.z <- NA
+    for(i in 1:nrow(curr_df)){
+      point = c(curr_df$x[i], curr_df$y[i], curr_df$z[i])
+      vector = c(curr_df$norm.x[i], curr_df$norm.y[i], curr_df$norm.z[i])
+      intersection <- vector.sphere.intersect(point, vector, sphere.c, sphere.r)[2, ]
+      curr_df$corn.proj.x[i] <- intersection[1] %>% pull()
+      curr_df$corn.proj.y[i] <- intersection[2] %>% pull()
+      curr_df$corn.proj.z[i] <- intersection[3] %>% pull()
+    }
+    
+    # add corn. projection coordinates to df
+    df$corn.proj.x[df$CV == curr_CV &
+                     df$type == "facet"] <- curr_df$corn.proj.x
+    df$corn.proj.y[df$CV == curr_CV &
+                     df$type == "facet"] <- curr_df$corn.proj.y
+    df$corn.proj.z[df$CV == curr_CV &
+                     df$type == "facet"] <- curr_df$corn.proj.z
+    
+    # # draw corn proj vectors
+    # vec.mult <- sphere.r # /1000
+    # for(l in seq(1, nrow(curr_df), length.out = 100)){
+    #   lines3d(x = c(curr_df$x[l], curr_df$x[l] +
+    #                   curr_df$norm.x[l]*vec.mult),
+    #           y = c(curr_df$y[l], curr_df$y[l] +
+    #                   curr_df$norm.y[l]*vec.mult),
+    #           z = c(curr_df$z[l], curr_df$z[l] +
+    #                   curr_df$norm.z[l]*vec.mult),
+    #           col = curr_df$CPD_corr_cols[l])
+    # }
+    
+    # calculate latitudes and longitudes for the curr data
+    lat_lon <- convert_to_latlon(x = curr_df %>% 
+                                   pull(corn.proj.x),
+                                 y = curr_df %>% 
+                                   pull(corn.proj.y),
+                                 z = curr_df %>% 
+                                   pull(corn.proj.z))
+    
+    # add lat lon data to df
+    df$latitude[df$CV == curr_CV &
+                  df$type == "facet"] <- lat_lon$latitude
+    df$longitude[df$CV == curr_CV &
+                   df$type == "facet"] <- lat_lon$longitude
+  }
+  return(df)
 }

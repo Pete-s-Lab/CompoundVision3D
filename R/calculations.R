@@ -105,7 +105,8 @@ closest_point_to_lines <- function(lines) {
 #'
 translate_ROIs <- function(df,
                            ROI_coordinates,
-                           eye){
+                           eye,
+                           px_size_eyes){
   # # testing
   # df = local_heights
   # # df = facet_positions_new
@@ -181,7 +182,7 @@ distance_3D <- function(point1,
 
 
 
-#' Find facet neighbors and Calculate facet sizes
+#' Find facet neighbours and Calculate facet sizes
 #'
 #' xxx: add description
 #'
@@ -191,19 +192,19 @@ distance_3D <- function(point1,
 #' @param verbose A `logical` value indicating if message printing is permitted.
 #' Default: `FALSE`. 
 #' @return Returns a `tibble` containing the additional columns with info on 
-#' facet size, facet neighbours and the number of neighbors of each facet.
+#' facet size, facet neighbours and the number of neighbours of each facet.
 #'
 #' @export
 #' @examples
 #' xxx: add example
 #'
-find_neighbours <- function(df,
-                            facet_size,
-                            neighbour_threshold = 1.5,
-                            cores = 1,
-                            plot_results = FALSE,
-                            plot_file = NULL,
-                            verbose = FALSE){
+find_neighbours_deprecated <- function(df,
+                                       facet_size,
+                                       neighbour_threshold = 1.5,
+                                       cores = 1,
+                                       plot_results = FALSE,
+                                       plot_file = NULL,
+                                       verbose = FALSE){
   require(doParallel)
   require(parallel)
   require(doSNOW)
@@ -220,6 +221,9 @@ find_neighbours <- function(df,
   # verbose = verbose
   
   facet_size <- as.numeric(facet_size)
+  
+  if(verbose == TRUE) cat("Facet size estimate: ", facet_size, "\n")
+  
   cores <- as.numeric(cores)
   
   if(verbose == TRUE){
@@ -251,7 +255,7 @@ find_neighbours <- function(df,
   }
   
   registerDoParallel(cores)
-  facet = "741"
+  facet = "6290"
   df_sizes <- foreach(facet = df %>% 
                         pull(ID) %>% 
                         as.character(), # nrow(df)
@@ -276,6 +280,8 @@ find_neighbours <- function(df,
                       }
   stopImplicitCluster()
   
+  # hist(df_sizes)
+  
   # remove facets where no size could have been calculated
   zero_sizes <- which(df_sizes==0)
   if(length(zero_sizes) > 0){
@@ -291,7 +297,7 @@ find_neighbours <- function(df,
     cat("Finding six closest facets (multi-threaded)...\n")
   }
   
-  facet="467.001"
+  facet="6290"
   registerDoParallel(cores)
   neighbour_columns <- foreach(facet = df %>% 
                                  pull(ID) %>% 
@@ -314,11 +320,12 @@ find_neighbours <- function(df,
   # add a temprary 6, because all six closest facets have been taken so far
   df$number.of.neighbours <- neighbour_columns$number.of.neighbours
   
+  # df %>% filter(ID == "6290")
   
-  # calculate median distance (~facet size) of all facets to their closest three neighbors xxx: this is median of all facets yet - bit maybe enough?
-  median.size.tmp <- median(df$size, na.rm = TRUE)
+  # calculate median distance (~facet size) of all facets to their closest three neighbours xxx: this is median of all facets yet - bit maybe enough?
+  median.size.tmp <- median(df$size, na.rm = TRUE) * 3
   
-  # find neighbors that are closer than median.size.tmp to current facet and remove them from facet.infos
+  # find neighbours that are closer than median.size.tmp to current facet and remove them from facet.infos
   # but keep at least 3 neighbours
   if(verbose == TRUE){
     cat("Filtering close neighbours (multi-threaded)...\n")
@@ -339,8 +346,10 @@ find_neighbours <- function(df,
     pb$tick(tokens = list(facet = df$ID[n]))
   } 
   
+  # df %>% mutate(n = row_number()) %>% filter(ID == "6352")
+  
   opts <- list(progress = progress)
-  l=100
+  l=5565
   neighbours_tmp <- foreach(l = 1:nrow(df ),# nrow(df)
                             .combine=rbind,
                             .packages=c('dplyr'),
@@ -374,10 +383,16 @@ find_neighbours <- function(df,
                                 counter <- counter+1
                               }
                               
-                              neighbouring_facets <- neighbours_raw %>%
+                              # filter actual neighbours of border-facets
+                              neighbours_raw_filtered <- neighbours_raw %>% 
+                                slice(1:6) %>% 
+                                filter(distance <= mean(.$distance[1:2])*1.5)
+                              
+                              
+                              neighbouring_facets <- neighbours_raw_filtered %>%
                                 pull(facet_2)
                               
-                              # take a max. of 6 and min of 3 neighbors
+                              # take a max. of 6 and min of 3 neighbours
                               if(length(neighbouring_facets) > 6){
                                 neighbours_fin <- neighbouring_facets[1:6]
                                 # } else if(length(neighbouring_facets) < 3){
@@ -405,6 +420,8 @@ find_neighbours <- function(df,
     select(-c(neighbours, number.of.neighbours)) %>% 
     left_join(neighbours_tmp %>% 
                 rename(ID = facet), by="ID")
+  
+  # df %>% filter(ID == "6290")
   
   if(plot_results == TRUE){
     # test plot
@@ -434,7 +451,7 @@ find_neighbours <- function(df,
   # sort(df$number.of.neighbours)
   # hist(df$number.of.neighbours)
   
-  # find facet sizes according to their neighbors
+  # find facet sizes according to their neighbours
   if(verbose == TRUE){
     cat("Finding facet sizes according to closest neighbours (multi-threaded)...\n")
   }
@@ -446,12 +463,12 @@ find_neighbours <- function(df,
                        .combine=rbind, .packages=c('dplyr', 'filesstrings')) %dopar% {
                          curr_facet <- df$ID[u]
                          
-                         curr.neighbors <- as.numeric(str_split(df$neighbours[df$ID == curr_facet], pattern = "; ")[[1]])
+                         curr.neighbours <- as.numeric(str_split(df$neighbours[df$ID == curr_facet], pattern = "; ")[[1]])
                          
-                         # if(all(!is.na(curr.neighbors))){
+                         # if(all(!is.na(curr.neighbours))){
                          curr_mean_distance <- facet_distance_df %>%
                            filter(facet_1 == curr_facet, facet_2 != curr_facet) %>%
-                           filter(facet_2 %in% curr.neighbors) %>%
+                           filter(facet_2 %in% curr.neighbours) %>%
                            mutate(mean_distance = mean(distance)) %>%
                            pull(mean_distance) %>%
                            unique()
@@ -480,9 +497,9 @@ find_neighbours <- function(df,
     # rename(size = size_final) %>%
     select(ID, neighbours, number.of.neighbours, size)
   
-  # calculate mean of sizes according to facet neighbors
+  # calculate mean of sizes according to facet neighbours
   if(verbose == TRUE){
-    cat("Calculating mean sizes according to all their actual neighbors...\n")
+    cat("Calculating mean sizes according to all their actual neighbours...\n")
   }
   
   df$mean_size <- NA
@@ -558,6 +575,234 @@ find_neighbours <- function(df,
 
 
 
+
+
+#' Find facet neighbours and Calculate facet sizes
+#'
+#' xxx: add description
+#'
+#' @param df A `tibble` containing facet coordinates in columns `x, y, z`.
+#' @param facet_size A `numeric` value containing the estimated facet size.
+#' @param cores A numerical value of how many cores to use. Default: `1`.
+#' @param verbose A `logical` value indicating if message printing is permitted.
+#' Default: `FALSE`. 
+#' @return Returns a `tibble` containing the additional columns with info on 
+#' facet size, facet neighbours and the number of neighbours of each facet.
+#'
+#' @export
+#' @examples
+#' xxx: add example
+#'
+find_neighbours <- function(df,
+                            x = "x", y = "y", z = "z",
+                            id = "ID",
+                            center = TRUE,
+                            k_local = 6,
+                            knn_search = 20,
+                            edge_tol = 0.35,
+                            max_neighbours = 6,
+                            color_option = "D") {
+  
+  # # testing
+  # df = curr_facets
+  # x = "x"
+  # y = "y"
+  # z = "z"
+  # id = "ID"
+  # center = TRUE
+  # k_local = 6
+  # knn_search = 20
+  # edge_tol = 0.5
+  # max_neighbours = 6
+  # color_option = "D"
+  
+  if (!requireNamespace("geometry", quietly = TRUE))
+    stop("Package 'geometry' required. install.packages('geometry')")
+  if (!requireNamespace("RANN", quietly = TRUE))
+    stop("Package 'RANN' required. install.packages('RANN')")
+  if (!requireNamespace("viridisLite", quietly = TRUE))
+    stop("Package 'viridisLite' required. install.packages('viridisLite')")
+  
+  stopifnot(all(c(x, y, z, id) %in% names(df)))
+  if (anyDuplicated(df[[id]]) > 0) stop("IDs must be unique.")
+  if (knn_search < k_local) stop("knn_search must be >= k_local")
+  
+  pts <- as.matrix(df[, c(x, y, z)])
+  storage.mode(pts) <- "double"
+  n <- nrow(pts)
+  
+  if (center) pts <- sweep(pts, 2, colMeans(pts), "-")
+  
+  norms <- sqrt(rowSums(pts^2))
+  if (any(norms == 0)) stop("Some points have zero norm after centering; cannot normalize.")
+  u <- pts / norms
+  
+  ang_dist <- function(ui, uj) {
+    d <- sum(ui * uj)
+    d <- max(min(d, 1), -1)
+    acos(d)
+  }
+  
+  nn <- RANN::nn2(u, u, k = knn_search + 1)
+  idx  <- nn$nn.idx[, -1, drop = FALSE]
+  dch  <- nn$nn.dists[, -1, drop = FALSE]
+  dang <- 2 * asin(pmin(dch / 2, 1))
+  
+  local_scale <- apply(dang[, 1:k_local, drop = FALSE], 1, median, na.rm = TRUE)
+  
+  tri <- geometry::convhulln(u, options = "Qt")
+  if (is.null(tri) || nrow(tri) == 0) stop("convhulln failed (degenerate point set?).")
+  
+  edge_pairs <- function(a, b) cbind(pmin(a, b), pmax(a, b))
+  e <- rbind(
+    edge_pairs(tri[,1], tri[,2]),
+    edge_pairs(tri[,2], tri[,3]),
+    edge_pairs(tri[,3], tri[,1])
+  )
+  e <- unique(e)
+  colnames(e) <- c("i", "j")
+  
+  keep <- logical(nrow(e))
+  for (k in seq_len(nrow(e))) {
+    i <- e[k, "i"]; j <- e[k, "j"]
+    th <- (1 + edge_tol) * max(local_scale[i], local_scale[j])
+    keep[k] <- ang_dist(u[i,], u[j,]) <= th
+  }
+  e <- e[keep, , drop = FALSE]
+  
+  adj <- vector("list", n)
+  if (nrow(e) > 0) {
+    for (k in seq_len(nrow(e))) {
+      i <- e[k, "i"]; j <- e[k, "j"]
+      adj[[i]] <- c(adj[[i]], j)
+      adj[[j]] <- c(adj[[j]], i)
+    }
+    adj <- lapply(adj, unique)
+  } else {
+    adj <- replicate(n, integer(0), simplify = FALSE)
+  }
+  
+  for (i in seq_len(n)) {
+    if (length(adj[[i]]) < min(3, k_local)) {
+      cand <- idx[i, ]
+      need <- min(3, k_local) - length(adj[[i]])
+      add <- setdiff(cand, c(i, adj[[i]]))
+      if (length(add) > 0)
+        adj[[i]] <- unique(c(adj[[i]], add[seq_len(min(need, length(add)))]))
+    }
+  }
+  
+  if (!is.null(max_neighbours)) {
+    adj <- lapply(seq_len(n), function(i) {
+      nb <- adj[[i]]
+      if (length(nb) <= max_neighbours) return(nb)
+      dots <- drop(u[nb, , drop = FALSE] %*% u[i, ])
+      ord <- order(1 - dots)
+      nb[ord[seq_len(max_neighbours)]]
+    })
+  }
+  
+  ids <- df[[id]]
+  
+  # ---- ONLY CHANGE: convert neighbour indices to semicolon string ----
+  neighbour_strings <- sapply(adj, function(v) {
+    if (length(v) == 0) return("")
+    paste(ids[v], collapse = "; ")
+  })
+  
+  df$neighbours   <- neighbour_strings
+  df$number.of.neighbours <- lengths(adj)
+  
+  pal <- viridisLite::viridis(6, option = color_option)
+  df$number_of_neighs_cols <- pal[pmin(pmax(df$number.of.neighbours, 1), 6)]
+  
+  
+  
+  
+  return(df)
+}
+
+
+
+#' Calculate facet sizes according to their neighbours
+#'
+#' xxx: add description
+#'
+#' @param df A tibble containing facet coordinates in columns `x, y, z`.
+#' @param cores A numerical value of how many cores to use. Default: `1`.
+#' @param verbose A `logical` value indicating if message printing is permitted.
+#' Default: `FALSE`.
+#' @return Returns a `tibble` containing the additional columns with info on 
+#' facet normals in x, y, and z direction for each facet.
+#'
+#' @export
+#' @examples
+#' xxx: add example
+#'
+calculate_facet_size <- function(df,
+                                 id_col = "ID",
+                                 x_col  = "x",
+                                 y_col  = "y",
+                                 z_col  = "z",
+                                 neighbours_col = "neighbours",
+                                 sep = ";",
+                                 keep_distances = FALSE) {
+  stopifnot(all(c(id_col, x_col, y_col, z_col, neighbours_col) %in% names(df)))
+  
+  suppressPackageStartupMessages({
+    library(dplyr)
+    library(tidyr)
+    library(stringr)
+  })
+  
+  coords <- df %>%
+    select(
+      ID = all_of(id_col),
+      x  = all_of(x_col),
+      y  = all_of(y_col),
+      z  = all_of(z_col)
+    ) %>%
+    mutate(ID = as.character(ID))
+  
+  long <- df %>%
+    transmute(
+      ID = as.character(.data[[id_col]]),
+      neighbours_raw = as.character(.data[[neighbours_col]])
+    ) %>%
+    mutate(neighbours_raw = if_else(is.na(neighbours_raw), "", neighbours_raw)) %>%
+    separate_rows(neighbours_raw, sep = fixed(sep)) %>%
+    transmute(
+      ID,
+      neighbour_ID = str_trim(neighbours_raw)
+    ) %>%
+    filter(neighbour_ID != "")
+  
+  dists <- long %>%
+    left_join(coords, by = "ID") %>%
+    left_join(coords, by = c("neighbour_ID" = "ID"), suffix = c("", "_nbr")) %>%
+    mutate(
+      dist = sqrt((x - x_nbr)^2 + (y - y_nbr)^2 + (z - z_nbr)^2)
+    )
+  
+  out <- dists %>%
+    group_by(ID) %>%
+    summarise(
+      facet_size = mean(dist, na.rm = TRUE),
+      n_used = sum(!is.na(dist)),
+      .groups = "drop"
+    )
+  
+  if (keep_distances) {
+    return(list(summary = out, distances = dists))
+  }
+  return(out)
+}
+
+
+
+
+
+
 #' Calculate facet normals according to their spacial positions
 #'
 #' xxx: add description
@@ -583,9 +828,11 @@ get_facet_normals <- function(df,
   require(progress)
   
   # # testing
-  # df = df
-  # cores = cores
-  # plot_file = gsub("_neighbour_and_size_data", "_normal_data", plot_file)
+  # df = df_w_sizes
+  # cores = 18
+  # plot_file = gsub("_neighbour_and_size_data",
+  #                  "_normal_data", 
+  #                  plot_file)
   # verbose = TRUE
   
   # get mean coordinate of facets
@@ -641,7 +888,7 @@ get_facet_normals <- function(df,
   
   # calculate facet normals according to their neighbours
   if(verbose == TRUE){
-    cat(paste0("Calculating ", nrow(df), " facet normals according to their neighbors' coordinates (multi-threaded)...\n"))
+    cat(paste0("Calculating ", nrow(df), " facet normals according to their neighbours' coordinates (multi-threaded)...\n"))
     cat(paste0("This may take a while, because ", nrow(df), " x ", sum(df$number.of.neighbours), " = ", nrow(df)*sum(df$number.of.neighbours), " calculations will be performed.\n"))
   }
   
@@ -669,11 +916,11 @@ get_facet_normals <- function(df,
                           
                           # print(l)
                           curr_facet <- df$ID[l]
-                          curr_neighbours <- as.numeric(str_split(df$neighbours[l], pattern = "; ")[[1]])
+                          curr_neighbours <- str_split(df$neighbours[l], pattern = "; ")[[1]]
                           
                           # if(all(!is.na(curr_neighbours))){
                           
-                          # get coordinates of current facet and neighbors
+                          # get coordinates of current facet and neighbours
                           coords_facet <- df %>% 
                             filter(ID == curr_facet) %>% 
                             select(x,y,z) %>% 
@@ -694,11 +941,9 @@ get_facet_normals <- function(df,
                           #         col = "red")
                           
                           # get distances between curr_neighbours
-                          curr_dists <- tibble(
-                            n1 = numeric(),
-                            n2 = numeric(),
-                            dist = numeric()
-                          )
+                          curr_dists <- tibble(n1 = character(),
+                                               n2 = character(),
+                                               dist = numeric())
                           n1=1
                           n2=2
                           for(n1 in 1:length(curr_neighbours)){
@@ -743,7 +988,7 @@ get_facet_normals <- function(df,
                           
                           n=1
                           for(n in 1:nrow(curr_dists_clean)){
-                            # get neighbors for current triangle
+                            # get neighbours for current triangle
                             curr_neighbour_1 <- curr_dists_clean %>%
                               slice(n) %>%
                               pull(n1)
@@ -807,7 +1052,7 @@ get_facet_normals <- function(df,
     
     # print(l)
     curr_facet <- df$ID[l]
-    curr_neighbours <- as.numeric(str_split(df$neighbours[l], pattern = "; ")[[1]])
+    curr_neighbours <- str_split(df$neighbours[l], pattern = "; ")[[1]]
     
     curr_normal <- df_normals %>% 
       filter(ID == curr_facet) %>% 
@@ -925,8 +1170,8 @@ get_optic_properties <- function(df,
   # df = df_w_normals
   # cores = 18
   # plot_results = plot_results
-  # plot_file = gsub("_neighbour_and_size_data", 
-  #                  "_optics_parameters", 
+  # plot_file = gsub("_neighbour_and_size_data",
+  #                  "_optics_parameters",
   #                  plot_file)
   # verbose = TRUE
   
@@ -936,7 +1181,7 @@ get_optic_properties <- function(df,
   
   
   registerDoParallel(cores)
-  l=1
+  l=7188
   dphi_Ps_CPDs <- foreach(l = 1:nrow(df), # nrow(df)
                           .combine=rbind, .packages=c('dplyr', 'filesstrings', 'CompoundVision3D')) %dopar% {
                             
@@ -949,14 +1194,14 @@ get_optic_properties <- function(df,
                             curr_facet_normal <- df %>%
                               filter(ID == facet_no) %>%
                               select(norm.x, norm.y, norm.z)
+                            
                             if(all(!is.na(curr_facet_normal))){
                               if(all(curr_facet_normal != 0)){
                                 # get neighbouring facets without NAs
-                                curr_facet_neighbours <- as.numeric(
-                                  str_split(df %>%
-                                              filter(ID==facet_no) %>%
-                                              pull(neighbours),
-                                            pattern = "; ")[[1]])
+                                curr_facet_neighbours <- str_split(df %>%
+                                                                     filter(ID==facet_no) %>%
+                                                                     pull(neighbours),
+                                                                   pattern = "; ")[[1]]
                                 
                                 if(all(!is.na(curr_facet_neighbours))){
                                   
@@ -1035,21 +1280,21 @@ get_optic_properties <- function(df,
   q = 1
   for(q in 1:nrow(dphi_Ps_CPDs)){
     curr_facet <- dphi_Ps_CPDs$ID[q]
-    curr.neighbors <- as.numeric(
+    curr.neighbours <- as.numeric(
       str_split(dphi_Ps_CPDs %>% 
                   filter(ID==curr_facet) %>% 
                   pull(neighbours), 
                 pattern = "; ")[[1]])
     
     # get number of neghbors for weighted averaging
-    no_of_neihbors <- length(curr.neighbors)
+    no_of_neihbors <- length(curr.neighbours)
     
     weighting_factor <- 6 - no_of_neihbors
     
     # get mean of IF-angles with curr facet angle doubled-weighted
     dphi_Ps_CPDs$mean.delta_phi.deg[q] <- mean(c(rep(dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == curr_facet], (weighting_factor+1)), 
                                                  dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == curr_facet],
-                                                 dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID %in% curr.neighbors]))
+                                                 dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID %in% curr.neighbours]))
   }
   dphi_Ps_CPDs$mean.delta_phi.rad <- dphi_Ps_CPDs$mean.delta_phi.deg*pi/180
   
@@ -1173,4 +1418,144 @@ get_optic_properties <- function(df,
                          P = P.mean,
                          v = v.mean,
                          CPD = CPD.mean))
+}
+
+
+
+
+
+
+#' Calculates the area of a hexagon given the long diagonal
+#'
+#' Rotates 3D point cloud according to one defined vector so that this vector
+#' is aligned to one of the global coordinate system axes.
+#'
+#' @param df A tibble containing coordinates in columns `x, y, z`.
+#' @param line_points A 2x3 tibble containing coordinates of line to align the 
+#' point cloud to. Must contain one row per point and columns `x, y, z`.
+#' @param axis A character string defining the global axis to align to. Must be 
+#' `x`, `y`, or `z`.
+#' @return Returns a tibble with the aligned coordinates in columns `x, y, z`.
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above descsriptionand parameters
+#'
+calculate_hexagon_area <- function(long_diagonal) {
+  # Calculate the side length
+  side_length <- long_diagonal / 2
+  
+  # Calculate the area using the formula
+  area <- (3 * sqrt(3) / 2) * (side_length^2)
+  
+  return(area)
+}
+
+
+
+
+#' Converts 3D coordinates to latitude and longitude
+#'
+#' Rotates 3D point cloud according to one defined vector so that this vector
+#' is aligned to one of the global coordinate system axes.
+#'
+#' @param df A tibble containing coordinates in columns `x, y, z`.
+#' @param line_points A 2x3 tibble containing coordinates of line to align the 
+#' point cloud to. Must contain one row per point and columns `x, y, z`.
+#' @param axis A character string defining the global axis to align to. Must be 
+#' `x`, `y`, or `z`.
+#' @return Returns a tibble with the aligned coordinates in columns `x, y, z`.
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above descsriptionand parameters
+#'
+convert_to_latlon <- function(x, y, z) {
+  # # testing
+  # x = curr_df_all %>%
+  #   pull(corn.proj.x)
+  # y = curr_df_all %>%
+  #   pull(corn.proj.y)
+  # z = curr_df_all %>%
+  #   pull(corn.proj.z)
+  
+  # Calculate the radius (should be 1 for unit sphere)
+  r <- sqrt(x^2 + y^2 + z^2)
+  
+  # Calculate latitude in radians
+  latitude <- asin(z / r)
+  
+  # Calculate longitude in radians
+  longitude <- atan2(y, x)
+  
+  # Convert latitude and longitude to degrees
+  latitude <- latitude * 180 / pi
+  longitude <- longitude * 180 / pi
+  
+  lat_lon <- tibble(latitude,
+                    longitude)
+  
+  return(lat_lon)
+}
+
+
+#' Calculates intersection of vector and sphere = corneal projection
+#'
+#' Rotates 3D point cloud according to one defined vector so that this vector
+#' is aligned to one of the global coordinate system axes.
+#'
+#' @param df A tibble containing coordinates in columns `x, y, z`.
+#' @param line_points A 2x3 tibble containing coordinates of line to align the 
+#' point cloud to. Must contain one row per point and columns `x, y, z`.
+#' @param axis A character string defining the global axis to align to. Must be 
+#' `x`, `y`, or `z`.
+#' @return Returns a tibble with the aligned coordinates in columns `x, y, z`.
+#'
+#' @export
+#' @examples
+#' xxx: add example and change above descsriptionand parameters
+#'
+vector.sphere.intersect <- function(point, vector, sphere.c, sphere.r){
+  # expected formats:
+  # point: vector of length 3 with x, y, and z coordinates of starting point (lens)
+  # vector: vector of length 3 with vector direction in x, y, and z
+  # sphere.c: vector of length 3 with x, y, and z coordinates of center of corneal projection sphere (e.g., c(0, 2571, 975))
+  # sphere.r: single number describing radius of corneal projection sphere (e.g. 7750)
+  
+  p1.x = point[1]
+  p1.y = point[2]
+  p1.z = point[3]
+  
+  v1.x = vector[1]
+  v1.y = vector[2]
+  v1.z = vector[3]
+  
+  p2.x = p1.x + v1.x
+  p2.y = p1.y + v1.y
+  p2.z = p1.z + v1.z
+  
+  sphere.c.x = sphere.c[1]
+  sphere.c.y = sphere.c[2]
+  sphere.c.z =sphere.c[3]
+  
+  A = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
+  B = 2.0 * (p1.x * v1.x + p1.y * v1.y + p1.z * v1.z - v1.x * sphere.c.x - v1.y * sphere.c.y - v1.z * sphere.c.z);
+  C = p1.x * p1.x - 2 * p1.x * sphere.c.x + sphere.c.x * sphere.c.x + p1.y * p1.y - 2 * p1.y * sphere.c.y + sphere.c.y * sphere.c.y +
+    p1.z * p1.z - 2 * p1.z * sphere.c.z + sphere.c.z * sphere.c.z - sphere.r * sphere.r;
+  
+  # discriminant
+  D = B * B - 4 * A * C;
+  
+  t1 = ( -B - sqrt ( D ) ) / ( 2.0 * A );
+  
+  solution1 = c( p1.x * ( 1 - t1 ) + t1 * p2.x,
+                 p1.y * ( 1 - t1 ) + t1 * p2.y,
+                 p1.z * ( 1 - t1 ) + t1 * p2.z )
+  
+  t2 = ( -B + sqrt ( D ) ) / ( 2.0 * A )
+  solution2 = c( p1.x * ( 1 - t2 ) + t2 * p2.x,
+                 p1.y * ( 1 - t2 ) + t2 * p2.y,
+                 p1.z * ( 1 - t2 ) + t2 * p2.z )
+  
+  return(as_tibble(rbind(solution1, solution2)))
 }

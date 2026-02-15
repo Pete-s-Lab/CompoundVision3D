@@ -4,14 +4,21 @@
 \alias{make_segments}
 \title{Calculate and plot facet vectors}
 \usage{
-make_segments(df, vector_length_multipler = 3)
+make_segments(
+  df,
+  vector_length_multipler = 1,
+  start_colums = c(1:3),
+  end_colums = c(4:6),
+  lwd = 1,
+  colors = "blue"
+)
 }
 \arguments{
 \item{df}{A \code{tibble} with the data columns (\verb{x,y,z}) and the normal columns
 (\verb{norm.x,norm.y,norm.z})}
 
 \item{vector_length_multipler}{a \code{numeric} value to change the length of the
-plotted vecots. Default: \code{3}.}
+plotted vectors. Default: \code{3}.}
 }
 \value{
 xxx

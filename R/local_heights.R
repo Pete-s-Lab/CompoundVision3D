@@ -823,13 +823,15 @@ combine_facets_and_LMs <- function(df,
     # add eye ROI coordinates to curr. eye ROI
     local_heights_translated <- translate_ROIs(df = local_heights,
                                                ROI_coordinates = curr_ROI_coordinates,
-                                               eye = as.numeric(curr_eye))
+                                               eye = as.numeric(curr_eye),
+                                               px_size_eyes = px_size_eyes)
     
     
     
     facet_positions_translated <- translate_ROIs(df = facet_positions_new,
                                                  ROI_coordinates = curr_ROI_coordinates,
-                                                 eye = as.numeric(curr_eye))
+                                                 eye = as.numeric(curr_eye),
+                                                 px_size_eyes = px_size_eyes)
   } else{
     warning("No log file found to translate data.")
     local_heights_translated <- local_heights
