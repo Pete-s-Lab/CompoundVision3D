@@ -566,14 +566,6 @@ get_optic_parameters <- function(df,
   curr_LMs <- df %>% 
     filter(type == "LM")
   
-  # df_neighbours <- find_neighbours(df = curr_facets,
-  #                                  facet_size = facet_estimate,
-  #                                  neighbour_threshold = 1.5,
-  #                                  cores = cores,
-  #                                  plot_results = plot_results,
-  #                                  plot_file = plot_file,
-  #                                  verbose = verbose)
-  
   df_neighbours <- find_neighbours(df = curr_facets,
                                    edge_tol = 0.5)
   
@@ -618,6 +610,7 @@ get_optic_parameters <- function(df,
                                   plot_file = gsub("_neighbour_and_size_data", 
                                                    "_normal_data", 
                                                    plot_file),
+                                  plot_results = TRUE,
                                   verbose = TRUE)
   
   
@@ -653,7 +646,7 @@ get_optic_parameters <- function(df,
                                            verbose = TRUE)
   
   # add results to tibble
-  df_w_optic_parameters <- df_w_sizes %>% 
+  df_w_optic_parameters <- df_w_normals %>% 
     left_join(optic_parameters, by = "ID")
   
   
@@ -672,6 +665,11 @@ get_optic_parameters <- function(df,
   #           pull(ID),
   #         pos=1,
   #         cex = .7)
+  
+  
+  
+  
+  
   
   
   # define viridis colours for the different parameters
@@ -787,7 +785,7 @@ normalize_eye_data <- function(df,
                 select(CV, taxon) %>% # , subfamily, tribe
                 distinct(), by = "CV")
   
-  # define analyis variables
+  # define analysis variables
   directions <- c("latitude", "longitude")
   analysis_variables <- c("size", "delta_phi.deg", "P", "CPD")
   analysis_variables_indices <- paste0(0, 1:4)

@@ -821,6 +821,7 @@ calculate_facet_size <- function(df,
 get_facet_normals <- function(df,
                               cores = 1,
                               plot_file = NULL,
+                              plot_results = FALSE,
                               verbose = FALSE){
   
   require(parallel)
@@ -833,6 +834,7 @@ get_facet_normals <- function(df,
   # plot_file = gsub("_neighbour_and_size_data",
   #                  "_normal_data", 
   #                  plot_file)
+  # plot_results = TRUE
   # verbose = TRUE
   
   # get mean coordinate of facets

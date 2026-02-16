@@ -4,7 +4,13 @@
 \alias{get_facet_normals}
 \title{Calculate facet normals according to their spacial positions}
 \usage{
-get_facet_normals(df, cores = 1, plot_file = NULL, verbose = FALSE)
+get_facet_normals(
+  df,
+  cores = 1,
+  plot_file = NULL,
+  plot_results = FALSE,
+  verbose = FALSE
+)
 }
 \arguments{
 \item{df}{A tibble containing facet coordinates in columns \verb{x, y, z}.}
