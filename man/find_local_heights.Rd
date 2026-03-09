@@ -10,7 +10,8 @@ find_local_heights(
   cores,
   plot_results = FALSE,
   plot_file = NULL,
-  verbose = TRUE
+  verbose = TRUE,
+  reverse = FALSE
 )
 }
 \arguments{

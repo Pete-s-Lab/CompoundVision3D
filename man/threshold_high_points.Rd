@@ -12,6 +12,7 @@ threshold_high_points(
   min_threshold = 2,
   max_treshold = 8,
   final_threshold = 5,
+  trials = 9,
   cores = 18,
   plot_results = TRUE,
   plot_file,

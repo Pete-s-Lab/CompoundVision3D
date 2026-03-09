@@ -25,7 +25,16 @@ find_threshold <- function(df,
     column2 <- names(sort(column_ranges))[3]
   }
   
-  par(mfrow=c(3,3))
+  if(trials > 4){
+    number_y = 3
+  } else if(trials > 2) {
+    number_y = 2
+  } else{
+    number_y = 1
+  }
+  number_x = ceiling(trials / number_y)
+  
+  par(mfrow=c(number_x,number_y))
   for(curr_thrsh in round(seq(min_threshold, max_treshold, length.out = trials),2)){
     df_tmp <- df %>% 
       filter(!!as.symbol(height_column) >= curr_thrsh) 
@@ -34,7 +43,7 @@ find_threshold <- function(df,
                   !!as.symbol(column2)),
          col = "black",
          pch=16,
-         cex = .1,
+         cex = .01,
          main=paste0(round(curr_thrsh,2), "; n = ", nrow(df_tmp)))
   }
   par(mfrow=c(1,1))
@@ -227,9 +236,9 @@ find_facet_canidates <- function(df,
     xlim_frac <- c(0, x_total / 4)
     ylim_frac <- c(0, y_total / 5)
     
-    # if there are fewer branches than 180, set to 180 or to total number
-    if((x_total / 4) < 180) xlim_frac[2] <- 180
-    if(x_total < 180) xlim_frac[2] <- x_total
+    # if there are fewer branches than 90, set to 180 or to total number
+    if((x_total / 4) < 90) xlim_frac[2] <- 90
+    if(x_total < 90) xlim_frac[2] <- x_total
     
     
     # Set plot layout

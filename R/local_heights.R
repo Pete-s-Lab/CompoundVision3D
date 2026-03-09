@@ -21,7 +21,8 @@ calculate_local_heights <- function(df,
                                     cores = 1,
                                     log_scale = TRUE,
                                     plot_file = NULL,
-                                    verbose = FALSE){
+                                    verbose = FALSE,
+                                    reverse = FALSE){
   
   # load package for multi-core
   require(doParallel)
@@ -36,6 +37,7 @@ calculate_local_heights <- function(df,
   # plot_file = file.path(local_heights_folder,
   #                       gsub("csv$", "pdf", curr_filename_out))
   # verbose = TRUE
+  # reverse = TRUE
   # #/ testing
   
   # dplyr NULLs
@@ -113,11 +115,15 @@ calculate_local_heights <- function(df,
                              tmp <- curr_local_height
                            }
   
-  # add distances to local planes to df tibble
-  df$local_height <- as.numeric(local_heights)
-  # save(df, file = "./data/AV00003_df.Rdata")
-  
   stopImplicitCluster()
+  
+  # add distances to local planes to df tibble
+  if(reverse == FALSE){
+    df$local_height <- as.numeric(local_heights)
+    # save(df, file = "./data/AV00003_df.Rdata")
+  } else{
+    df$local_height <- -1 * as.numeric(local_heights)
+  }
   
   # save(df, file = "./data/AV00003_df_NORM.Rdata")
   # load(file = "./data/AV00003_df_NORM.Rdata")
@@ -616,16 +622,18 @@ combine_facets_and_LMs <- function(df,
                                    local_heights,
                                    landmarks_file,
                                    crop_log_file,
+                                   eyes = 2,
                                    facet_estimate = 14,
                                    cores,
                                    plot_results = FALSE,
                                    verbose = FALSE){
   # # testing
-  # df = facet_candidates
+  # df = facet_positions
   # local_heights = local_heights
-  # landmarks_file = landmarks_file
-  # crop_log_file = crop_log_file
+  # landmarks_file = landmarks_file_name
+  # crop_log_file = crop_log_file_name
   # facet_estimate = 14
+  # eyes = 4
   # cores = 18
   # plot_results = TRUE
   # verbose = TRUE
@@ -813,7 +821,7 @@ combine_facets_and_LMs <- function(df,
     
     # extract x,y coordinates of head crop and eyes 1 and 2 ROIs ---------------------------------------
     
-    ROIs <- c("head", "eye1", "eye2")
+    ROIs <- c("head", paste0("eye", 1:eyes))
     
     
     curr_ROI_coordinates <- get_ROI_coordinates(ROIs,
@@ -825,8 +833,6 @@ combine_facets_and_LMs <- function(df,
                                                ROI_coordinates = curr_ROI_coordinates,
                                                eye = as.numeric(curr_eye),
                                                px_size_eyes = px_size_eyes)
-    
-    
     
     facet_positions_translated <- translate_ROIs(df = facet_positions_new,
                                                  ROI_coordinates = curr_ROI_coordinates,

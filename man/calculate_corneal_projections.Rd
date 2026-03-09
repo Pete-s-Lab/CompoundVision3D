@@ -4,7 +4,7 @@
 \alias{calculate_corneal_projections}
 \title{Calculate Corneal Projections}
 \usage{
-calculate_corneal_projections(df, cp_diam_cm, verbose = FALSE)
+calculate_corneal_projections(df, cp_diam_cm, center = NULL, verbose = FALSE)
 }
 \arguments{
 \item{df}{A tibble containing coordinates and IDs.}

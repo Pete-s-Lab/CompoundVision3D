@@ -113,13 +113,15 @@ find_local_heights <- function(df,
                                cores,
                                plot_results = FALSE,
                                plot_file = NULL,
-                               verbose = TRUE){
+                               verbose = TRUE,
+                               reverse = FALSE){
   # # testing
   # facet_estimate = 14
   # cores = 12
   # plot_results = TRUE
   # plot_file = gsub("csv$", "pdf", file_name_out)
   # verbose = TRUE
+  # reverse = TRUE
   
   # Dependencies ------------------------------------------------------------
   # 3D plotting
@@ -138,18 +140,19 @@ find_local_heights <- function(df,
   # add local height to df
   #   This is a multi-threaded but may still take a while. Define number of cores to suit your system (cores = n).
   
-  if(is.null(plot_file)){
+  # if(is.null(plot_file)){
+  #   df <- calculate_local_heights(df = df,
+  #                                 search_diam = facet_estimate*3,
+  #                                 cores = cores,
+  #                                 verbose = verbose)
+  # } else{
     df <- calculate_local_heights(df = df,
-                       search_diam = facet_estimate*3,
-                       cores = cores,
-                       verbose = verbose)
-  } else{
-    df <- calculate_local_heights(df = df,
-                       search_diam = facet_estimate*3,
-                       cores = cores,
-                       plot_file = plot_file,
-                       verbose = verbose)
-  }
+                                  search_diam = facet_estimate*3,
+                                  cores = cores,
+                                  plot_file = plot_file,
+                                  verbose = verbose,
+                                  reverse = reverse)
+  # }
   
   
   
@@ -174,12 +177,12 @@ find_local_heights <- function(df,
   
   if (verbose == TRUE) cat("Normalizing local heights.\n")
   df_norm <- normalize_local_heights(df = df,
-                          normalize_diam = facet_estimate,
-                          column_to_normalize = "local_height_log", # "local_height" "local_height_log"
-                          cores = cores,
-                          # plot_file = file.path(df_normalized_folder,
-                          #                       gsub("csv$", "pdf", basename(curr_filename_out))),
-                          verbose = verbose)
+                                     normalize_diam = facet_estimate,
+                                     column_to_normalize = "local_height_log", # "local_height" "local_height_log"
+                                     cores = cores,
+                                     # plot_file = file.path(df_normalized_folder,
+                                     #                       gsub("csv$", "pdf", basename(curr_filename_out))),
+                                     verbose = verbose)
   
   if (verbose == TRUE) cat("All done!\n")
   return(df_norm)
@@ -205,6 +208,7 @@ threshold_high_points <- function(df,
                                   min_threshold = 2,
                                   max_treshold = 8,
                                   final_threshold = 5,
+                                  trials = 9,
                                   cores = 18,
                                   plot_results = TRUE,
                                   plot_file,
@@ -218,6 +222,7 @@ threshold_high_points <- function(df,
   # min_threshold = 2
   # max_treshold = 8
   # final_threshold = 5
+  # trials = 9
   # cores = 18
   # plot_results = TRUE
   # plot_file = gsub("csv$", "pdf", file_name_out)
@@ -314,7 +319,7 @@ threshold_high_points <- function(df,
                  column2 = column2,
                  min_threshold = min_threshold,
                  max_treshold = max_treshold,
-                 trials = 9,
+                 trials = trials,
                  plot_file = plot_file)
   
   
@@ -546,17 +551,24 @@ find_facet_positions <- function(df,
 
 get_optic_parameters <- function(df,
                                  plot_file = NULL,
-                                 cores = 18,
+                                 edge_tol = 0.5,
+                                 cores = 1,
                                  plot_results = FALSE,
-                                 verbose = FALSE){
+                                 verbose = FALSE,
+                                 version = "fast",
+                                 facet_size = 14){
   
   # # testing
   # df = LMs_facets_combined
   # plot_file = file.path(facet_infos_folder,
   #                       gsub("_surface.stl", "_neighbour_and_size_data.pdf", basename(file_name)))
+  # edge_tol = 0.8
   # cores = 18
   # plot_results = TRUE
   # verbose = TRUE
+  # facet_size = facet_estimate
+  # version = "fast"
+  # version = "slow"
   
   # get data of facets
   curr_facets <- df %>% 
@@ -566,9 +578,38 @@ get_optic_parameters <- function(df,
   curr_LMs <- df %>% 
     filter(type == "LM")
   
-  df_neighbours <- find_neighbours(df = curr_facets,
-                                   edge_tol = 0.5)
   
+  if(version == "fast"){
+    df_neighbours <- find_neighbours(df = curr_facets,
+                                     edge_tol = edge_tol)
+  } else{
+    df_neighbours_raw <- find_neighbours_deprecated(df = curr_facets,
+                                                    facet_size = facet_estimate,
+                                                    neighbour_threshold = 1.5,
+                                                    cores = cores,
+                                                    plot_results = plot_results,
+                                                    plot_file = NULL,
+                                                    verbose = verbose)
+    
+    
+    
+    # # create viridis colors
+    # color_option = "D"
+    # pal <- viridisLite::viridis(6, option = color_option)
+    # 
+    # #     add data - replace size by size avg
+    # df_neighbours <- curr_facets %>% 
+    #   left_join(df_neighbours_raw %>% 
+    #               select(-c(size, size_avg)) ,
+    #             by = "ID") %>% 
+    #   mutate(number_of_neighs_cols = pal[pmin(pmax(number.of.neighbours, 1), 6)])
+    
+    df_neighbours <- curr_facets %>%
+      left_join(df_neighbours_raw, # %>%
+                # select(-c(size, size_avg)) ,
+                by = "ID") #%>%
+    # mutate(number_of_neighs_cols = pal[pmin(pmax(number.of.neighbours, 1), 6)])
+  }
   
   # add results to tibble
   df_w_neighbours <- curr_facets %>% 
@@ -580,28 +621,32 @@ get_optic_parameters <- function(df,
   
   
   
-  df_w_sizes <- left_join(df_w_neighbours,
-                          facet_sizes %>% 
-                            select(-n_used),
-                          by = "ID") %>% 
-    rename(size = facet_size)
+  df_w_sizes_raw <- left_join(df_w_neighbours,
+                              facet_sizes %>% 
+                                select(-n_used),
+                              by = "ID")
   
+  #   go on with avg sizes
+  if(verbose == TRUE) cat("Using average size...\n")
+  df_w_sizes <- df_w_sizes_raw %>% 
+    select(-size) %>% 
+    rename(size = size_avg)
   
   # #   check:
-  #   plot3d(df_w_sizes %>% 
-  #            select(x,y,z),
-  #          col = df_w_sizes$number_of_neighs_cols,
-  #          type="s",
-  #          radius = df_w_sizes$size,
-  #          aspect = "iso")
-  #   
-  #   
-  #   texts3d(df_w_sizes  %>% 
-  #             select(x,y,z),
-  #           texts = df_w_sizes  %>% 
-  #             pull(ID),
-  #           pos=1,
-  #           cex = .7)
+  # plot3d(df_w_sizes %>%
+  #          select(x,y,z),
+  #        col = df_w_sizes$number_of_neighs_cols,
+  #        type="s",
+  #        radius = df_w_sizes$size,
+  #        aspect = "iso")
+  # 
+  # 
+  # texts3d(df_w_sizes  %>%
+  #           select(x,y,z),
+  #         texts = df_w_sizes  %>%
+  #           pull(ID),
+  #         pos=1,
+  #         cex = .7)
   
   
   # calculate facet normals according to their neighbours
@@ -645,6 +690,8 @@ get_optic_parameters <- function(df,
                                                             plot_file),
                                            verbose = TRUE)
   
+  
+  
   # add results to tibble
   df_w_optic_parameters <- df_w_normals %>% 
     left_join(optic_parameters, by = "ID")
@@ -665,12 +712,6 @@ get_optic_parameters <- function(df,
   #           pull(ID),
   #         pos=1,
   #         cex = .7)
-  
-  
-  
-  
-  
-  
   
   # define viridis colours for the different parameters
   cols_to_use <- viridis(n=100, begin = 0, end = 1)
@@ -711,9 +752,10 @@ get_optic_parameters <- function(df,
   # #   check:
   # plot3d(df_w_plot_cols %>%
   #          select(x,y,z),
+  #        col = df_w_plot_cols$size_cols,
   #        # col = df_w_plot_cols$number_of_neighs_cols,
   #        # col = df_w_plot_cols$delta_phi.deg_cols,
-  #        col = df_w_plot_cols$CPD_cols,
+  #        # col = df_w_plot_cols$CPD_cols,
   #        type="s",
   #        radius = df_w_plot_cols$size,
   #        aspect = "iso")
@@ -730,7 +772,6 @@ get_optic_parameters <- function(df,
 }
 
 
-
 #' Normalize data of all eyes
 #'
 #' XYZ: create description and param defs
@@ -745,11 +786,13 @@ get_optic_parameters <- function(df,
 #'
 normalize_eye_data <- function(df,
                                info_table = CompVisTab, 
+                               quantile_value = 0.01,
                                plot_results = FALSE){
   
   # # testing
   # df = df_all
-  # info_table = info_table
+  # info_table = CompVisTab
+  # quantile_value = 0.01
   # plot_results = TRUE
   
   # for viridis colours
@@ -761,22 +804,6 @@ normalize_eye_data <- function(df,
   # load tidyverse for its various conveniences
   require(dplyr)
   rename <- dplyr::rename
-  
-  # functions
-  
-  ## -------------------------------------------------------------------------
-  ## General variable definitions
-  
-  ## -------------------------------------------------------------------------
-  
-  
-  
-  # add CV number to df_all
-  df_all <- df %>% 
-    mutate(CV = gsub("^CV(.{4}).*", "\\1", df_all$filename), 
-           .before = ID) %>% 
-    # arrange(CV, ID)
-    arrange(CV, order(gtools::mixedorder(ID)))
   
   # add species to df_all
   df_all <- df_all %>% 
@@ -792,7 +819,7 @@ normalize_eye_data <- function(df,
   
   
   # colorize all corrected data values with table-wide LUT
-  cols_to_use <- viridis(n=1000, begin = 0, end = 1)
+  cols_to_use <- viridis(n=200, begin = 0, end = 1)
   
   # first: remove outliers
   df_all_corr <- NULL
@@ -810,7 +837,7 @@ normalize_eye_data <- function(df,
       curr_values[curr_NA_vals] <- mean(curr_values, na.rm = TRUE)
       
       # find outliers and replace them by quantile values
-      curr_quantiles <- quantile(curr_values, c(.05, .95))
+      curr_quantiles <- quantile(curr_values, c(quantile_value, 1-quantile_value))
       curr_values[curr_values<curr_quantiles[1]] <- curr_quantiles[1]
       curr_values[curr_values>curr_quantiles[2]] <- curr_quantiles[2]
       
@@ -923,8 +950,6 @@ normalize_eye_data <- function(df,
 
 
 
-
-
 #' Calculate Corneal Projections
 #'
 #' XYZ: create description and param defs
@@ -939,10 +964,12 @@ normalize_eye_data <- function(df,
 #'
 calculate_corneal_projections <- function(df,
                                           cp_diam_cm,
+                                          center = NULL,
                                           verbose = FALSE){
   # #   testing
   # df = df_all_normalized
-  # cp_diam_cm = 100
+  # cp_diam_cm = 50
+  # center = head_center
   # verbose = TRUE
   
   # General variable definitions
@@ -992,9 +1019,13 @@ calculate_corneal_projections <- function(df,
     # center between eyes; eye distance radius value
     # define center of corneal projection sphere
     #   this is exaclty between both eyes, so x=0:
-    sphere.c <- center_point_L
-    sphere.c[1] <- 0
     
+    if(is.null(center)){
+      sphere.c <- center_point_L
+      sphere.c[1] <- 0
+    } else{
+      sphere.c <- center
+    }
     # calculate sphere radius in um
     sphere.r = cp_diam_cm/2*1000 # abs(center_point_L[1]) + 
     

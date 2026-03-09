@@ -4,7 +4,12 @@
 \alias{normalize_eye_data}
 \title{Normalize data of all eyes}
 \usage{
-normalize_eye_data(df, info_table = CompVisTab, plot_results = FALSE)
+normalize_eye_data(
+  df,
+  info_table = CompVisTab,
+  quantile_value = 0.01,
+  plot_results = FALSE
+)
 }
 \arguments{
 \item{df}{A tibble containing coordinates and IDs.}

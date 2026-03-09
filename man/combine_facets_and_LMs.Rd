@@ -9,6 +9,7 @@ combine_facets_and_LMs(
   local_heights,
   landmarks_file,
   crop_log_file,
+  eyes = 2,
   facet_estimate = 14,
   cores,
   plot_results = FALSE,

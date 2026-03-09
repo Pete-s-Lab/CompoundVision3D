@@ -32,5 +32,4 @@ xxx: add description
 }
 \examples{
 xxx: add example
-
 }

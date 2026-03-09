@@ -7,9 +7,12 @@
 get_optic_parameters(
   df,
   plot_file = NULL,
-  cores = 18,
+  edge_tol = 0.5,
+  cores = 1,
   plot_results = FALSE,
-  verbose = FALSE
+  verbose = FALSE,
+  version = "fast",
+  facet_size = 14
 )
 }
 \arguments{
