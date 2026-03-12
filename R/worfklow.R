@@ -114,14 +114,14 @@ find_local_heights <- function(df,
                                plot_results = FALSE,
                                plot_file = NULL,
                                verbose = TRUE,
-                               reverse = FALSE){
+                               invert = FALSE){
   # # testing
   # facet_estimate = 14
   # cores = 12
   # plot_results = TRUE
   # plot_file = gsub("csv$", "pdf", file_name_out)
   # verbose = TRUE
-  # reverse = TRUE
+  # invert = TRUE
   
   # Dependencies ------------------------------------------------------------
   # 3D plotting
@@ -151,7 +151,7 @@ find_local_heights <- function(df,
                                   cores = cores,
                                   plot_file = plot_file,
                                   verbose = verbose,
-                                  reverse = reverse)
+                                  invert = invert)
   # }
   
   

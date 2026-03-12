@@ -11,7 +11,7 @@ find_local_heights(
   plot_results = FALSE,
   plot_file = NULL,
   verbose = TRUE,
-  reverse = FALSE
+  invert = FALSE
 )
 }
 \arguments{

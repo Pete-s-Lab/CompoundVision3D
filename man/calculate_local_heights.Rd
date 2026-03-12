@@ -11,7 +11,7 @@ calculate_local_heights(
   log_scale = TRUE,
   plot_file = NULL,
   verbose = FALSE,
-  reverse = FALSE
+  invert = FALSE
 )
 }
 \arguments{

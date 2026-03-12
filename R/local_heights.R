@@ -22,7 +22,7 @@ calculate_local_heights <- function(df,
                                     log_scale = TRUE,
                                     plot_file = NULL,
                                     verbose = FALSE,
-                                    reverse = FALSE){
+                                    invert = FALSE){
   
   # load package for multi-core
   require(doParallel)
@@ -37,7 +37,7 @@ calculate_local_heights <- function(df,
   # plot_file = file.path(local_heights_folder,
   #                       gsub("csv$", "pdf", curr_filename_out))
   # verbose = TRUE
-  # reverse = TRUE
+  # invert = TRUE
   # #/ testing
   
   # dplyr NULLs
@@ -118,7 +118,7 @@ calculate_local_heights <- function(df,
   stopImplicitCluster()
   
   # add distances to local planes to df tibble
-  if(reverse == FALSE){
+  if(invert == FALSE){
     df$local_height <- as.numeric(local_heights)
     # save(df, file = "./data/AV00003_df.Rdata")
   } else{
