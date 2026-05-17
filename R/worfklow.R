@@ -390,151 +390,115 @@ threshold_high_points <- function(df,
 #' @examples
 #' xxx: add example and change above descsriptionand parameters
 #'
-find_facet_positions <- function(df,
-                                 local_heights,
-                                 h_min = 40,
-                                 h_max = 16,
-                                 h_final = 10,
-                                 trials = 9,
-                                 column1 = NULL,
-                                 column2 = NULL,
-                                 cutoffs_file,
-                                 plot_results = TRUE,
-                                 plot_file,
-                                 verbose = FALSE){
-  # testing
-  # h_min = 20
-  # h_max = 8
-  # h_final = 16
-  # cutoffs_file = "./data/cutoffs.log"
-  # plot_results = TRUE
-  
-  # Dependencies ------------------------------------------------------------
-  # 3D plotting
-  require(rgl)
-  # dplyr for tibble handling and pipe
-  require(dplyr)
-  
-  
-  # check if a csv file exists to sore all threshold values in a log file
-  if(!file.exists(cutoffs_file)){
-    if(verbose == TRUE) cat("Creating ", cutoffs_file, "...\n")
-    cutoffs <- tibble(CV = character(),
-                      eye = numeric(),
-                      cutoff_min = numeric(),
-                      cutoff_max = numeric(),
-                      cutoff_final = numeric())
-    
-    # create empty threshold file
-    write_csv(cutoffs, file = cutoffs_file,
-              progress  = FALSE)
-  } else{
-    if(verbose == TRUE) cat("Loading ", cutoffs_file, "...\n")
-    cutoffs <- read_csv(file = cutoffs_file,
-                        show_col_types = FALSE,
-                        col_types = "cdddd",
-                        progress  = FALSE)
+#' Find facet positions by thresholding and local condensation
+#'
+#' This workflow helper first thresholds the local-height table and then runs
+#' local mode condensation on the surviving points to obtain one facet
+#' candidate per condensed point group.
+#'
+#' @param df Optional pre-thresholded input table. If supplied and it already
+#'   contains `x`, `y`, `z`, and `height_value`, it is used directly.
+#' @param local_heights Local-height table used when `df` does not already
+#'   contain thresholded points with a `height_value` column.
+#' @param local_height_threshold Numeric threshold applied to `height_column`.
+#' @param height_column Character string naming the local-height column in
+#'   `local_heights`.
+#' @param neighbour_radius Local neighbourhood radius used during condensation.
+#' @param merge_radius Radius used to merge converged points into final
+#'   candidate groups. Defaults to `neighbour_radius / 2`.
+#' @param weight_exponent Exponent applied to `height_value` during weighting.
+#' @param max_iterations Maximum number of condensation iterations.
+#' @param step_size Fraction of each shift toward the local weighted centre.
+#' @param tolerance Early-stop tolerance for the maximum per-iteration shift.
+#' @param min_cluster_size Minimum cluster size retained as a candidate.
+#' @param select_point How to choose the final candidate point within a
+#'   converged group. Passed to `find_facet_candidates_condensed()`.
+#' @param return_details Logical. If `TRUE`, return the full details list from
+#'   `find_facet_candidates_condensed()`. Otherwise return only the candidates
+#'   table.
+#' @param verbose Logical. If `TRUE`, print short progress information.
+#' @param ... Currently unused. Kept so old project scripts can be adapted more
+#'   gently without failing on extra arguments immediately.
+#'
+#' @return Data frame of facet candidates, or the full details list if
+#'   `return_details = TRUE`.
+#'
+#' @export
+find_facet_positions <- function(df = NULL,
+                                 local_heights = NULL,
+                                 local_height_threshold = 2.5,
+                                 height_column = "local_height_log",
+                                 neighbour_radius,
+                                 merge_radius = neighbour_radius / 2,
+                                 weight_exponent = 1,
+                                 max_iterations = 10,
+                                 step_size = 1,
+                                 tolerance = neighbour_radius * 1e-3,
+                                 min_cluster_size = 1,
+                                 select_point = c("nearest_mode", "max_height"),
+                                 return_details = FALSE,
+                                 verbose = FALSE,
+                                 ...){
+
+  # # testing
+  # local_height_threshold = 2.5
+  # height_column = "local_height_log"
+  # neighbour_radius = 15
+  # merge_radius = 7.5
+  # verbose = TRUE
+
+  select_point <- match.arg(select_point)
+
+  has_thresholded_input <- is.data.frame(df) &&
+    all(c("x", "y", "z", "height_value") %in% colnames(df))
+
+  if(has_thresholded_input){
+    thresholded_points <- df
+
+    # Keep source_index available for traceability if not already present.
+    if(!"source_index" %in% colnames(thresholded_points)){
+      thresholded_points$source_index <- seq_len(nrow(thresholded_points))
+    }
+
+    thresholded_points <- thresholded_points %>%
+      dplyr::select(source_index, x, y, z, height_value)
+
+  } else {
+
+    if(is.null(local_heights)){
+      stop(
+        "Either provide df with x/y/z/height_value or provide local_heights ",
+        "together with height_column.",
+        call. = FALSE
+      )
+    }
+
+    thresholded_points <- threshold_local_heights(
+      df = local_heights,
+      local_height_threshold = local_height_threshold,
+      height_column = height_column,
+      verbose = verbose
+    )
   }
-  
-  
-  # Find facet position candidates
-  
-  # # load csv file of rough clusters
-  # rough_clusters <- read_csv(file_name,
-  #                            show_col_types = FALSE)
-  
-  # # get local heights for plotting
-  # curr_df_file <- gsub(df_folder, df_folder, file_name)
-  # curr_df_file <- gsub("_df", "_df", curr_df_file)
-  # df <- read_csv(curr_df_file,
-  #                           show_col_types = FALSE)
-  
-  
-  if(plot_results == TRUE){
-    # plot local heights
-    plot3d(local_heights %>% 
-             select(x,y,z),
-           aspect = "iso",
-           col = local_heights$local_height_log_col,
-           size = 5)
-    
-    # plot rough clusters
-    points3d(df,
-             size = 10,
-             col = "orange")
-  }
-  
-  # get fine peaks. Make sure your plot device is as large as possible
-  facet_positions_auto <- find_facet_candidates(df = df, # %>% 
-                                               # slice(1:floor(nrow(.)/2)), 
-                                               # slice(ceiling(nrow(.)/2):nrow(.)), 
-                                               h_min = h_min,
-                                               h_max = h_max,
-                                               column1 = NULL,
-                                               column2 = NULL,
-                                               h_final = h_final,
-                                               n_steps = 100,
-                                               trials = trials,
-                                               plot_file = plot_file,
-                                               verbose = verbose)
-  
-  
-  # # in case analysis was split in two halves (done for CV0034)
-  # facet_positions_auto_02 <- facet_positions_auto_02 %>% 
-  #   mutate(ID = ID+nrow(facet_positions_auto_01))
-  # facet_positions_auto <- rbind(facet_positions_auto_01, facet_positions_auto_02)
-  
-  if(plot_results == TRUE){
-    # plot facet position candidates over rough clusters to check again if necessary
-    # plot local heights
-    plot3d(local_heights %>% 
-             select(x,y,z),
-           aspect = "iso",
-           col = local_heights$local_height_log_col,
-           size = 5)
-    
-    # plot rough clusters
-    points3d(df,
-             size = 10,
-             col = "orange")
-    
-    # plot facet position candidates
-    spheres3d(facet_positions_auto %>% 
-                select(x,y,z), 
-              col = "red", 
-              radius=3)
-  }
-  
-  # add values to cutoffs and save csv
-  cutoffs <- cutoffs %>% 
-    add_row(CV = curr_CV,
-            eye = as.numeric(curr_eye),
-            cutoff_min = facet_positions_auto$cutoff_min[1],
-            cutoff_max = facet_positions_auto$cutoff_max[1],
-            cutoff_final = facet_positions_auto$cutoff_fin[1])
-  
-  # write cutoffs to csv
-  write_csv(cutoffs, 
-            cutoffs_file,
-            progress = FALSE)
-  
-  # # write facet_positions_auto
-  # write_csv(facet_positions_auto %>% 
-  #             select(ID,x,y,z), 
-  #           file.path(facet_candidate_folder, file_name_out[1]),
-  #           progress = FALSE)
-  
-  if(verbose == TRUE) cat("All done!\n")
-  
-  if(verbose == TRUE) cat("Now go to Blender and check facet candidates at", file.path(facet_candidate_folder, file_name_out[1]), "manually.\n")
-  
-  return(facet_positions_auto %>% 
-           select(ID,x,y,z))
+
+  facet_candidates <- find_facet_candidates_condensed(
+    df = thresholded_points,
+    coord_cols = c("x", "y", "z"),
+    height_col = "height_value",
+    neighbour_radius = neighbour_radius,
+    merge_radius = merge_radius,
+    weight_exponent = weight_exponent,
+    max_iterations = max_iterations,
+    step_size = step_size,
+    tolerance = tolerance,
+    min_cluster_size = min_cluster_size,
+    select_point = select_point,
+    return_details = return_details,
+    verbose = verbose
+  )
+
+  return(facet_candidates)
 }
-
-
-
-
 
 #' Calculate optic parameters for eye
 #'

@@ -16,6 +16,7 @@ find_facet_candidates_condensed(
   tolerance = neighbour_radius * 0.001,
   min_cluster_size = 1,
   select_point = c("nearest_mode", "max_height"),
+  cores = 1,
   return_details = FALSE,
   verbose = FALSE
 )
@@ -55,6 +56,9 @@ converged group to be retained as a facet candidate. Defaults to \code{1}.}
 each converged group. \code{"nearest_mode"} chooses the original point closest
 to the converged group mode. \code{"max_height"} chooses the highest point in
 the group. Defaults to \code{"nearest_mode"}.}
+
+\item{cores}{Number of CPU cores used for the independent per-point
+condensation updates. The merging step remains sequential. Defaults to \code{1}.}
 
 \item{return_details}{Logical. If \code{FALSE}, return only the facet-candidate
 data frame. If \code{TRUE}, return a list with candidates, membership, converged

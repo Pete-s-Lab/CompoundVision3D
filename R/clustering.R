@@ -93,95 +93,69 @@ find_threshold <- function(df,
 #' @examples
 #' xxx: add example
 #' 
-find_facets_rough <- function(df,
-                              local_height_threshold = 2.5,
-                              height_column,
-                              clust_melt_rad, 
-                              # iterations = 1,
-                              cores = 1){
-  
+#' Threshold local-height points
+#'
+#' Keep only points above a chosen local-height threshold and preserve the
+#' corresponding local-height values for downstream steps such as local
+#' condensation or hierarchical clustering.
+#'
+#' @param df A data frame containing at least coordinate columns `x`, `y`, `z`
+#'   and a local-height column.
+#' @param local_height_threshold Numeric threshold. Only rows with values in
+#'   `height_column` greater than or equal to this threshold are kept.
+#' @param height_column Character string naming the local-height column to use.
+#' @param verbose Logical. If `TRUE`, print short progress information.
+#'
+#' @return Tibble with the columns `source_index`, `x`, `y`, `z`, and
+#'   `height_value`.
+#'
+#' @export
+threshold_local_heights <- function(df,
+                                    local_height_threshold = 2.5,
+                                    height_column,
+                                    verbose = FALSE){
+
   # # testing
-  # local_height_threshold = 2
-  # df = local_heights
+  # local_height_threshold = 2.5
   # height_column = "local_height_log"
-  # clust_melt_rad = 1.0*round(1/8*curr_search_diam,2)
-  # cores = 12
-  
-  # load multi-core package
-  require(doParallel)
-  
-  start_time <- Sys.time()
-  
-  # dplyr NULLs
-  ID <- x <- y <- z <- i <- local_height <- NULL
-  
-  # remove all coordinates with a local height of less than 2.5x mean local height
-  df <- df %>% 
-    filter(!!as.symbol(height_column) >= local_height_threshold) %>%
-    mutate(
-      source_index = row_number(),
-      height_value = as.numeric(!!as.symbol(height_column))
-    ) # # store filtered df for final results
-  # df_final <- df
-  
-  # select relevant columns for analyses within this function
-  df <- df %>% 
-    select(x, y, z, source_index, height_value)
-  
-  # # plot filtered tibble in 'SEM colours'
-  # plot3d(df,
-  #        aspect = "iso")
-  
-  message("Getting agglomerative clusters using ", nrow(df), " vertices to start with ...")
-  
-  registerDoParallel(cores)
-  # for(k in 1:iterations){
-  # print(paste("iteration #:", k))
-  # define number of iterations of preliminary agglomerative clustering
-  local.clust.verts.means <- foreach(i = 1:nrow(df),
-                                     .combine=rbind, .packages=c('dplyr')) %dopar% { # .packages=c('dplyr', 'geometry')
-                                       
-                                       # get last columns of df because those are the ones containing the results of the last iteration
-                                       curr.df <- df[,(ncol(df)-2):ncol(df)]
-                                       colnames(curr.df) <- c("x", "y", "z")
-                                       
-                                       local.clust.verts <- curr.df %>%
-                                         filter(x>(df$x[i]-clust_melt_rad) & x<(df$x[i]+clust_melt_rad) &
-                                                  y>(df$y[i]-clust_melt_rad) & y<(df$y[i]+clust_melt_rad) &
-                                                  z>(df$z[i]-clust_melt_rad) & z<(df$z[i]+clust_melt_rad))
-                                       # plot(local.clust.verts[,2:3])
-                                       tmp <- local.clust.verts %>% # local.clust.verts.mean
-                                         summarize(median_x = median(x),
-                                                   median_y = median(y),
-                                                   median_z = median(z))
-                                       # points(local.clust.verts.mean[,2:3], pch=16,col="red")
-                                     }
-  
-  # colnames(local.clust.verts.means) <- as.vector(outer(c("local_meds_x", "local_meds_y", "local_meds_z"), 
-  #                                                      k, 
-  #                                                      paste, sep="_"))
-  # df_final <- as_tibble(cbind(df_final, local.clust.verts.means))
-  
-  # dist.matr <- dist(local.clust.verts.means)
-  # dist.matr.tbl <- melt(as.matrix((dist.matr))) %>% as_tibble() %>% filter(Var1 < Var2) %>% 
-  #   filter(value <= 50)
-  # png(paste0(stl.folder, "/hist_below_50_",k,".png"))
-  # hist(dist.matr.tbl$value)
-  # dev.off()
-  
-  # }
-  stopImplicitCluster()
-  
-  
-  print("done!")
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  return(local.clust.verts.means)
+  # verbose = TRUE
+
+  if(!is.data.frame(df)){
+    stop("df must be a data frame.", call. = FALSE)
+  }
+
+  required_cols <- c("x", "y", "z", height_column)
+  missing_cols <- setdiff(required_cols, colnames(df))
+  if(length(missing_cols) > 0){
+    stop(
+      "df is missing required column(s): ",
+      paste(missing_cols, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  if(verbose == TRUE) cat("Thresholding local-height points...\n")
+
+  out <- df %>%
+    dplyr::mutate(
+      source_index = dplyr::row_number(),
+      height_value = as.numeric(.data[[height_column]])
+    ) %>%
+    dplyr::filter(
+      is.finite(x),
+      is.finite(y),
+      is.finite(z),
+      is.finite(height_value),
+      height_value >= local_height_threshold
+    ) %>%
+    dplyr::select(source_index, x, y, z, height_value)
+
+  if(verbose == TRUE){
+    cat("Kept ", nrow(out), " thresholded points.\n", sep = "")
+  }
+
+  return(out)
 }
-
-
-
 
 #' Fine clustering towards Facet Peaks
 #'
@@ -904,6 +878,8 @@ agglomerative_clustering <- function(df,
 #'   each converged group. `"nearest_mode"` chooses the original point closest
 #'   to the converged group mode. `"max_height"` chooses the highest point in
 #'   the group. Defaults to `"nearest_mode"`.
+#' @param cores Number of CPU cores used for the independent per-point
+#'   condensation updates. The merging step remains sequential. Defaults to `1`.
 #' @param return_details Logical. If `FALSE`, return only the facet-candidate
 #'   data frame. If `TRUE`, return a list with candidates, membership, converged
 #'   coordinates, and parameter metadata.
@@ -925,6 +901,7 @@ find_facet_candidates_condensed <- function(df,
                                             tolerance = neighbour_radius * 1e-3,
                                             min_cluster_size = 1,
                                             select_point = c("nearest_mode", "max_height"),
+                                            cores = 1,
                                             return_details = FALSE,
                                             verbose = FALSE) {
 
@@ -968,6 +945,12 @@ find_facet_candidates_condensed <- function(df,
     stop("step_size must be in the interval (0, 1].", call. = FALSE)
   }
 
+  if (!is.numeric(cores) || length(cores) != 1 ||
+      !is.finite(cores) || cores < 1) {
+    stop("cores must be a single positive finite number.", call. = FALSE)
+  }
+  cores <- as.integer(cores)
+
   empty_candidates <- data.frame(
     facet_candidate_id = integer(),
     x = numeric(),
@@ -989,7 +972,8 @@ find_facet_candidates_condensed <- function(df,
     merge_radius = numeric(),
     weight_exponent = numeric(),
     iterations_used = integer(),
-    max_shift_final = numeric()
+    max_shift_final = numeric(),
+    cores = integer()
   )
 
   if (nrow(df) == 0) {
@@ -1081,15 +1065,23 @@ find_facet_candidates_condensed <- function(df,
   last_max_shift <- NA_real_
   iterations_used <- 0L
 
-  for (iter in seq_len(max_iterations)) {
+  use_parallel <- cores > 1 && n > 1
+  if (use_parallel) {
+    cores <- min(cores, n)
+    doParallel::registerDoParallel(cores)
+    on.exit(doParallel::stopImplicitCluster(), add = TRUE)
+
     if (verbose) {
-      message("Condensation iteration ", iter, " / ", max_iterations)
+      message("Using ", cores, " cores for condensation updates.")
     }
+  }
 
-    grid_obj <- make_grid(coords_current, neighbour_radius)
-    coords_next <- coords_current
+  update_chunk <- function(chunk, coords_current, grid_obj) {
+    chunk_out <- coords_current[chunk, , drop = FALSE]
 
-    for (i in seq_len(n)) {
+    for (j in seq_along(chunk)) {
+      i <- chunk[j]
+
       neighbours <- get_neighbours(
         i = i,
         coords = coords_current,
@@ -1103,7 +1095,37 @@ find_facet_candidates_condensed <- function(df,
       }
 
       local_centre <- colSums(coords_current[neighbours, , drop = FALSE] * w) / sum(w)
-      coords_next[i, ] <- coords_current[i, ] + step_size * (local_centre - coords_current[i, ])
+      chunk_out[j, ] <- coords_current[i, ] + step_size * (local_centre - coords_current[i, ])
+    }
+
+    chunk_out
+  }
+
+  for (iter in seq_len(max_iterations)) {
+    if (verbose) {
+      message("Condensation iteration ", iter, " / ", max_iterations)
+    }
+
+    grid_obj <- make_grid(coords_current, neighbour_radius)
+
+    if (use_parallel) {
+      # Chunking keeps foreach overhead much lower than launching one task per point.
+      n_chunks <- min(n, cores * 4)
+      chunk_id <- cut(seq_len(n), breaks = n_chunks, labels = FALSE)
+      chunks <- split(seq_len(n), chunk_id)
+
+      coords_next <- foreach::foreach(
+        chunk = chunks,
+        .combine = rbind,
+        .inorder = TRUE,
+        .export = c("get_neighbours")
+      ) %dopar% {
+        update_chunk(chunk, coords_current, grid_obj)
+      }
+
+    } else {
+      coords_next <- coords_current
+      coords_next[] <- update_chunk(seq_len(n), coords_current, grid_obj)
     }
 
     shift <- sqrt(rowSums((coords_next - coords_current) ^ 2))
@@ -1210,7 +1232,8 @@ find_facet_candidates_condensed <- function(df,
       merge_radius = merge_radius,
       weight_exponent = weight_exponent,
       iterations_used = iterations_used,
-      max_shift_final = last_max_shift
+      max_shift_final = last_max_shift,
+      cores = cores
     )
   }
 
@@ -1255,6 +1278,7 @@ find_facet_candidates_condensed <- function(df,
       select_point = select_point,
       iterations_used = iterations_used,
       max_shift_final = last_max_shift,
+      cores = cores,
       input_point_count = n,
       candidate_count = nrow(candidates_df)
     )
