@@ -465,7 +465,7 @@ find_facet_positions <- function(df,
   }
   
   # get fine peaks. Make sure your plot device is as large as possible
-  facet_positions_auto <- find_facet_canidates(df = df, # %>% 
+  facet_positions_auto <- find_facet_candidates(df = df, # %>% 
                                                # slice(1:floor(nrow(.)/2)), 
                                                # slice(ceiling(nrow(.)/2):nrow(.)), 
                                                h_min = h_min,

@@ -1,7 +1,7 @@
 Package: CompoundVision3D
 Title: Three-dimensional Compound Eye Analysis
 Description: xxx.
-Version: 0.0.9055
+Version: 0.0.9056
 License: MIT + file LICENSE
 URL: https://github.com/Peter-T-Ruehr/compound_vision_3D
 BugReports: https://github.com/Peter-T-Ruehr/compound_vision_3D/issues

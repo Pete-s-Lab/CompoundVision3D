@@ -4,37 +4,8 @@
 \alias{find_facet_canidates}
 \title{Fine clustering towards Facet Peaks}
 \usage{
-find_facet_canidates(
-  df,
-  cols_to_use = 1:3,
-  h_min = NULL,
-  h_max = NULL,
-  h_final = NULL,
-  column1 = NULL,
-  column2 = NULL,
-  n_steps = 100,
-  trials = 9,
-  plot_file = NULL,
-  verbose = FALSE
-)
-}
-\arguments{
-\item{df}{A tibble containing triangle center coordinates of vertices that
-lie above threshold in columns \verb{x, y, z} .
-Typically, this is the resulting tibble of the \code{find_facets_rough()}
-function.}
-
-\item{cols_to_use}{A numerical value of which columns store x,y,z coordinates
-of rough clustering.}
-}
-\value{
-Tibble \code{df} with ideally one vertex per facet, located on the facet
-peak.
+find_facet_canidates(...)
 }
 \description{
-Find facet peaks.
-}
-\examples{
-xxx: add example
-
+Backwards-compatible wrapper for the historical misspelled function name.
 }

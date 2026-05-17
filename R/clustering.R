@@ -195,12 +195,12 @@ find_facets_rough <- function(df,
 #' @return Tibble `df` with ideally one vertex per facet, located on the facet 
 #' peak.
 #'
-#' @export
+#' @keywords internal
 #' @examples
 #' xxx: add example
 #' 
 
-find_facet_canidates <- function(df,
+.find_facet_canidates_legacy <- function(df,
                                  cols_to_use = 1:3,
                                  h_min = NULL,
                                  h_max = NULL,
@@ -516,6 +516,227 @@ find_facet_canidates <- function(df,
            mutate(cutoff_min = round(h_min,5),
                   cutoff_max = round(h_max, 5),
                   cutoff_fin = round(as.numeric(h_final$x), 5)))
+}
+
+
+
+#' Fine clustering towards Facet Peaks
+#'
+#' Find one facet candidate per hierarchical cluster of thresholded high points.
+#' The returned candidate coordinates are real input points: for each cluster, the
+#' point closest to the cluster centroid is selected.
+#'
+#' @param df A tibble/data frame containing at least x, y, z coordinates.
+#' @param cols_to_use Columns containing the coordinates used for clustering.
+#' @param h_min Minimum cut height shown in the zoomed dendrogram.
+#' @param h_max Maximum cut height shown in the zoomed dendrogram.
+#' @param h_final Final cut height. If NULL and interactive is TRUE, this is read
+#' from the y-coordinate of one click on the zoomed dendrogram.
+#' @param column1,column2 Optional columns used for the 2D diagnostic plot.
+#' @param n_steps Number of test cut heights for the cluster-number curve.
+#' @param trials Retained for backwards compatibility.
+#' @param plot_file Optional PDF path for saving diagnostic plots.
+#' @param interactive If TRUE, missing h_min/h_max/h_final values are selected
+#' using locator() on explicitly plotted dendrograms.
+#' @param verbose Print progress messages.
+#' @return Tibble with one row per facet candidate.
+#'
+#' @export
+find_facet_candidates <- function(df,
+                                  cols_to_use = 1:3,
+                                  h_min = NULL,
+                                  h_max = NULL,
+                                  h_final = NULL,
+                                  column1 = NULL,
+                                  column2 = NULL,
+                                  n_steps = 100,
+                                  trials = 9,
+                                  plot_file = NULL,
+                                  interactive = TRUE,
+                                  verbose = FALSE){
+  # Dependencies ------------------------------------------------------------
+  require(dplyr)
+
+  start_time <- Sys.time()
+
+  if(nrow(df) == 0) stop("df contains no points.")
+  if(length(cols_to_use) != 3) stop("cols_to_use must identify exactly three coordinate columns.")
+
+  coord_names <- colnames(df)[cols_to_use]
+  coords <- df %>%
+    dplyr::select(all_of(coord_names)) %>%
+    dplyr::mutate(dplyr::across(dplyr::everything(), as.numeric))
+  colnames(coords) <- c("x", "y", "z")
+
+  if(any(!stats::complete.cases(coords)) || any(!is.finite(as.matrix(coords)))){
+    stop("Coordinate columns contain missing or non-finite values.")
+  }
+
+  if(nrow(coords) == 1){
+    return(tibble::tibble(ID = 1,
+                          x = coords$x,
+                          y = coords$y,
+                          z = coords$z,
+                          cluster = 1,
+                          point_count = 1,
+                          centroid_x = coords$x,
+                          centroid_y = coords$y,
+                          centroid_z = coords$z,
+                          selected_source_index = 1,
+                          cutoff_min = h_min,
+                          cutoff_max = h_max,
+                          cutoff_fin = h_final))
+  }
+
+  # if undefined, take the columns with the highest ranges for plotting
+  if(is.null(column1)){
+    column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
+    names(column_ranges) <- c("x","y","z")
+    column1 <- names(sort(column_ranges))[2]
+  }
+  if(is.null(column2)){
+    column_ranges <- c(diff(range(df$x)), diff(range(df$y)), diff(range(df$z)))
+    names(column_ranges) <- c("x","y","z")
+    column2 <- names(sort(column_ranges))[3]
+  }
+
+  if(verbose == TRUE) cat("Calculating distance matrix...\n")
+  d <- dist(coords, method = "euclidean")
+  hc1 <- hclust(d, method = "complete")
+
+  # Plot before locator(); otherwise locator() may listen to an unrelated device.
+  if(is.null(h_min) | is.null(h_max)){
+    if(interactive != TRUE) stop("h_min and h_max must be supplied when interactive = FALSE.")
+    if(verbose == TRUE) cat("Plotting full dendrogram for min/max cutoff selection...\n")
+    plot(as.dendrogram(hc1), cex = 0.1, leaflab = "none",
+         main = "Select minimum and maximum cut heights on the y-axis",
+         xlab = "", sub = "")
+    cat("Select minimum and maximum cut-off points on the y-axis.\n")
+    h.cutoff.df <- locator(type = "n", n = 2)
+    h_min <- min(h.cutoff.df$y, na.rm = TRUE)
+    h_max <- max(h.cutoff.df$y, na.rm = TRUE)
+  }
+
+  if(h_min > h_max){
+    tmp <- h_min
+    h_min <- h_max
+    h_max <- tmp
+  }
+
+  if(verbose == TRUE) cat("Cutoff range:", round(h_min, 3), "to", round(h_max, 3), "\n")
+
+  test_heights <- seq(h_min, h_max, length.out = n_steps)
+  ommatidia.no.df <- tibble::tibble(
+    h = test_heights,
+    ommatidia.no = vapply(test_heights,
+                          function(h) length(unique(cutree(hc1, h = h))),
+                          numeric(1))
+  ) %>%
+    dplyr::mutate(ommatidia.no.diff = ommatidia.no - dplyr::lag(ommatidia.no, default = ommatidia.no[1]))
+
+  plot_diagnostics <- function(final_cut = NULL){
+    layout(mat = matrix(c(1, 2, 3), nrow = 3, ncol = 1),
+           heights = c(2, 1, 2))
+
+    op <- par(mar = c(1, 4, 3, 2) + 0.1)
+    plot(as.dendrogram(hc1),
+         cex = 0.1,
+         xlab = "",
+         main = "Zoomed hierarchical clustering dendrogram",
+         sub = "",
+         ylim = c(h_min, h_max),
+         leaflab = "none")
+    abline(h = c(h_min, h_max), col = "blue", lty = 2)
+    if(!is.null(final_cut) && is.finite(final_cut)) abline(h = final_cut, col = "red")
+    par(op)
+
+    plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no,
+         type = "l",
+         xlab = "Cut height",
+         ylab = "Facet candidate number")
+    abline(v = c(h_min, h_max), col = "blue", lty = 2)
+    if(!is.null(final_cut) && is.finite(final_cut)) abline(v = final_cut, col = "red")
+
+    plot(ommatidia.no.df$h, ommatidia.no.df$ommatidia.no.diff,
+         type = "l",
+         xlab = "Cut height",
+         ylab = "Delta candidate number")
+    abline(h = 0, col = "red", lty = 2)
+    abline(v = c(h_min, h_max), col = "blue", lty = 2)
+    if(!is.null(final_cut) && is.finite(final_cut)) abline(v = final_cut, col = "red")
+  }
+
+  if(is.null(h_final)){
+    if(interactive != TRUE) stop("h_final must be supplied when interactive = FALSE.")
+    if(verbose == TRUE) cat("Plotting zoomed dendrogram for final cutoff selection...\n")
+    plot_diagnostics(final_cut = NULL)
+    cat("Select final cut-off point on the dendrogram y-axis.\n")
+    h_final_click <- locator(type = "n", n = 1)
+    h_final <- h_final_click$y[1]
+    if(verbose == TRUE) cat("Final cutoff chosen:", round(h_final, 3), "\n")
+  }
+
+  if(!is.numeric(h_final) || length(h_final) != 1 || !is.finite(h_final)){
+    stop("h_final must be a single finite numeric value.")
+  }
+
+  if(!is.null(plot_file)){
+    if(verbose == TRUE) cat("Saving clustering diagnostics as ", plot_file, "\n")
+    pdf(plot_file, onefile = TRUE, paper = "a4", height = 14)
+    plot_diagnostics(final_cut = h_final)
+    dev.off()
+  }
+
+  clusters.fin <- cutree(hc1, h = h_final)
+  coords_with_meta <- coords %>%
+    dplyr::mutate(cluster = clusters.fin,
+                  selected_source_index = dplyr::row_number())
+
+  df.fin.clean <- coords_with_meta %>%
+    dplyr::group_by(cluster) %>%
+    dplyr::group_modify(function(.x, .y){
+      centroid <- c(mean(.x$x), mean(.x$y), mean(.x$z))
+      d_to_centroid <- sqrt((.x$x - centroid[1])^2 +
+                              (.x$y - centroid[2])^2 +
+                              (.x$z - centroid[3])^2)
+      closest <- .x[which.min(d_to_centroid), , drop = FALSE]
+      tibble::tibble(x = closest$x,
+                     y = closest$y,
+                     z = closest$z,
+                     point_count = nrow(.x),
+                     centroid_x = centroid[1],
+                     centroid_y = centroid[2],
+                     centroid_z = centroid[3],
+                     selected_source_index = closest$selected_source_index)
+    }) %>%
+    dplyr::ungroup() %>%
+    dplyr::arrange(cluster) %>%
+    dplyr::mutate(ID = dplyr::row_number(),
+                  cutoff_min = round(h_min, 5),
+                  cutoff_max = round(h_max, 5),
+                  cutoff_fin = round(h_final, 5)) %>%
+    dplyr::select(ID, x, y, z, cluster, point_count,
+                  centroid_x, centroid_y, centroid_z,
+                  selected_source_index,
+                  cutoff_min, cutoff_max, cutoff_fin)
+
+  if(verbose == TRUE){
+    cat(paste0("Found ", nrow(df.fin.clean), " facet center candidates."), "\n")
+    end_time <- Sys.time()
+    cat("Time taken for manual and automatic process:", end_time - start_time, "\n")
+  }
+
+  return(df.fin.clean)
+}
+
+
+#' Fine clustering towards Facet Peaks
+#'
+#' Backwards-compatible wrapper for the historical misspelled function name.
+#'
+#' @export
+find_facet_canidates <- function(...){
+  find_facet_candidates(...)
 }
 
 
