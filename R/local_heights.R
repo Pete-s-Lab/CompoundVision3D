@@ -316,6 +316,12 @@ normalize_local_heights <- function(df,
   # convert search_diam to numeric if necessary
   normalize_diam <- as.numeric(normalize_diam)
   
+  # The optimized neighborhood search below uses grid cells with
+  # cell size = normalize_diam. This requires a positive search diameter.
+  if(is.na(normalize_diam) || normalize_diam <= 0){
+    stop("normalize_diam must be a positive numeric value.")
+  }
+  
   # if(!is.null(plot_file)){
   require(rgl)
   # }
@@ -339,9 +345,31 @@ normalize_local_heights <- function(df,
   df <- df %>%
     mutate(n=row_number())
   
+  # -------------------------------------------------------------------------
+  # OPTIMIZED NORMALIZATION CORE
+  # -------------------------------------------------------------------------
+  # Original behaviour:
+  # For every center point i:
+  #   1. find all points inside the x/y/z cube of radius normalize_diam
+  #   2. quantile-filter and rescale the selected column within that local cube
+  #   3. return one normalized value for every point in that cube
+  # Final value per point:
+  #   mean of all normalized values assigned to that point from all overlapping cubes
+  #
+  # The expensive parts in the old version were:
+  #   - scanning the complete df once for every point
+  #   - building a very large intermediate tibble and then summarising it
+  #
+  # This version preserves the same logic, but:
+  #   - uses a simple 3D grid to get only nearby candidate points
+  #   - accumulates sum/count vectors directly
+  # -------------------------------------------------------------------------
+  
+  n_total <- nrow(df)
+  
   # limet number of rows for one analsis to get reasonable calulation times
   max_rows = 2500
-  starts <- seq(1,nrow(df),max_rows)
+  starts <- seq(1,n_total,max_rows)
   
   if(verbose == TRUE){
     if(length(starts) > 1){
@@ -349,9 +377,96 @@ normalize_local_heights <- function(df,
     }
   }
   
+  # Pull frequently used columns into plain vectors.
+  # This avoids repeated dplyr::slice(), dplyr::filter(), dplyr::select()
+  # inside the inner loop.
+  x_vec <- df$x
+  y_vec <- df$y
+  z_vec <- df$z
+  col_to_norm_vec <- df[[column_to_normalize]]
   
-  df_normalized_raw <- tibble(n=numeric(),
-                              local_heights_quantiles_normalized=numeric())
+  # Build a simple spatial grid.
+  # Cell size equals normalize_diam.
+  # Therefore, any point within +/- normalize_diam of a center point
+  # can only lie in the same or directly adjacent cell along each axis.
+  cell_size <- normalize_diam
+  
+  valid_coord_rows <- is.finite(x_vec) & is.finite(y_vec) & is.finite(z_vec)
+  
+  if(!any(valid_coord_rows)){
+    stop("No rows with finite x/y/z coordinates found.")
+  }
+  
+  x_min <- min(x_vec[valid_coord_rows])
+  y_min <- min(y_vec[valid_coord_rows])
+  z_min <- min(z_vec[valid_coord_rows])
+  
+  cell_x <- floor((x_vec - x_min) / cell_size)
+  cell_y <- floor((y_vec - y_min) / cell_size)
+  cell_z <- floor((z_vec - z_min) / cell_size)
+  
+  # Create one character key per occupied grid cell.
+  # The value stored in each grid cell is the vector of row indices in that cell.
+  cell_key <- paste(cell_x, cell_y, cell_z, sep = "_")
+  cell_map <- split(seq_len(n_total)[valid_coord_rows], cell_key[valid_coord_rows])
+  
+  # Offsets for the 27 cells that need to be inspected:
+  # center cell plus all adjacent cells in 3D.
+  neighbor_offsets <- expand.grid(dx = -1:1,
+                                  dy = -1:1,
+                                  dz = -1:1)
+  neighbor_offsets <- as.matrix(neighbor_offsets)
+  
+  # Helper: get candidate indices from nearby grid cells,
+  # then apply the exact same cube condition as the original dplyr::filter().
+  get_cube_neighbor_indices <- function(i){
+    
+    if(!valid_coord_rows[i]){
+      return(integer(0))
+    }
+    
+    curr_cell_x <- cell_x[i]
+    curr_cell_y <- cell_y[i]
+    curr_cell_z <- cell_z[i]
+    
+    neighbor_cells <- cbind(curr_cell_x + neighbor_offsets[, "dx"],
+                            curr_cell_y + neighbor_offsets[, "dy"],
+                            curr_cell_z + neighbor_offsets[, "dz"])
+    
+    neighbor_keys <- paste(neighbor_cells[, 1],
+                           neighbor_cells[, 2],
+                           neighbor_cells[, 3],
+                           sep = "_")
+    
+    candidate_idx <- unlist(cell_map[neighbor_keys], use.names = FALSE)
+    
+    if(length(candidate_idx) == 0){
+      return(integer(0))
+    }
+    
+    # Exact cube filtering.
+    # This preserves the old condition:
+    # x/y/z must each be within +/- normalize_diam of the center point.
+    candidate_idx <- candidate_idx[
+      x_vec[candidate_idx] >= x_vec[i] - normalize_diam &
+        x_vec[candidate_idx] <= x_vec[i] + normalize_diam &
+        y_vec[candidate_idx] >= y_vec[i] - normalize_diam &
+        y_vec[candidate_idx] <= y_vec[i] + normalize_diam &
+        z_vec[candidate_idx] >= z_vec[i] - normalize_diam &
+        z_vec[candidate_idx] <= z_vec[i] + normalize_diam
+    ]
+    
+    candidate_idx
+  }
+  
+  # Helper for foreach result combination.
+  # Each worker returns only two vectors:
+  #   sum_norm   = accumulated normalized values per original row
+  #   count_norm = number of contributions per original row
+  combine_norm_results <- function(a, b){
+    list(sum_norm = a$sum_norm + b$sum_norm,
+         count_norm = a$count_norm + b$count_norm)
+  }
   
   if(verbose == TRUE){
     cat("Starting analyses on cluster...\n")
@@ -359,78 +474,60 @@ normalize_local_heights <- function(df,
   }
   
   registerDoParallel(cores)
-  s=1
-  for(k in 1:length(starts)){
-    s=starts[k]
-    
-    e = (s + max_rows - 1)
-    if(e > nrow(df)) e = nrow(df)
-    # print(paste0(s, " to ", e))
-    i=s
-    curr_df_normalized_raw <- foreach(i = s:e,# nrow(df)
-                                      .combine=rbind,
-                                      .packages=c('dplyr', 'forceR')) %dopar% {
+  
+  # Instead of one foreach task per point, use one foreach task per block.
+  # Inside each block, we loop over the center points and accumulate directly.
+  normalized_accumulated <- foreach(k = seq_along(starts),
+                                    .combine = combine_norm_results,
+                                    .init = list(sum_norm = numeric(n_total),
+                                                 count_norm = numeric(n_total)),
+                                    .packages = c('forceR')) %dopar% {
+                                      
+                                      s <- starts[k]
+                                      e <- (s + max_rows - 1)
+                                      if(e > n_total) e <- n_total
+                                      
+                                      # Local worker-side accumulators.
+                                      # This avoids returning millions of rows.
+                                      curr_sum_norm <- numeric(n_total)
+                                      curr_count_norm <- numeric(n_total)
+                                      
+                                      for(i in s:e){
                                         
-                                        curr_vertex <- df %>%
-                                          slice(i) %>%
-                                          select(x,y,z)
+                                        curr_neighbor_idx <- get_cube_neighbor_indices(i)
                                         
-                                        
-                                        # spheres3d(curr_vertex,
-                                        #           col="blue",
-                                        #           radius = 10)
-                                        
-                                        curr_facetsized_ROI <- df %>%
-                                          filter(x >= curr_vertex$x - normalize_diam,
-                                                 x <= curr_vertex$x + normalize_diam,
-                                                 y >= curr_vertex$y - normalize_diam,
-                                                 y <= curr_vertex$y + normalize_diam,
-                                                 z >= curr_vertex$z - normalize_diam,
-                                                 z <= curr_vertex$z + normalize_diam) %>%
-                                          select(n,x,y,z,one_of(column_to_normalize)) %>%
-                                          rename(col_to_norm = 5) # rename fith column
-                                        
-                                        # points3d(curr_facetsized_ROI %>%
-                                        #            select(x,y,z),
-                                        #          col="red", size=11)
-                                        
-                                        # get local heights values and filter out outliers
-                                        curr_local_heights <- curr_facetsized_ROI %>%
-                                          select(n, col_to_norm)
-                                        
-                                        if(nrow(curr_local_heights)>1){
+                                        # Same logic as before:
+                                        # only process neighborhoods containing more than one point.
+                                        if(length(curr_neighbor_idx) > 1){
+                                          
+                                          curr_values <- col_to_norm_vec[curr_neighbor_idx]
+                                          
                                           # set outliers as quantile values
-                                          curr_Q <- quantile(curr_local_heights$col_to_norm, probs=c(.10, .90), na.rm = FALSE)
+                                          curr_Q <- quantile(curr_values, probs=c(.10, .90), na.rm = FALSE)
                                           curr_Q_min <- curr_Q[1]
                                           curr_Q_max <- curr_Q[2]
                                           
-                                          curr_local_heights <- curr_local_heights %>%
-                                            mutate(local_heights_quantiles = case_when(col_to_norm < curr_Q_min ~ curr_Q_min,
-                                                                                       col_to_norm > curr_Q_max ~ curr_Q_max,
-                                                                                       TRUE ~ col_to_norm),
-                                                   local_heights_quantiles_normalized = rescale_to_range(local_heights_quantiles, 0, 1))
+                                          curr_values_quantiles <- pmin(pmax(curr_values, curr_Q_min),
+                                                                        curr_Q_max)
                                           
-                                          # hist(curr_local_heights$col_to_norm, breaks = 7)
-                                          # hist(curr_local_heights$local_heights_quantiles, breaks = 7)
-                                          # hist(curr_local_heights$local_heights_quantiles_normalized, breaks = 7)
+                                          curr_values_normalized <- rescale_to_range(curr_values_quantiles, 0, 1)
                                           
-                                          tmp <- curr_local_heights %>%
-                                            select(n,local_heights_quantiles_normalized) # %>%
-                                          # mutate(iteration = i)# %>%
-                                          # rename_at(vars(all_of(col.from)), ~col.to)
+                                          # Old behaviour:
+                                          # one normalized value is emitted for every point in the current ROI.
+                                          #
+                                          # New implementation:
+                                          # directly add those emitted values to the target rows.
+                                          curr_sum_norm[curr_neighbor_idx] <-
+                                            curr_sum_norm[curr_neighbor_idx] + curr_values_normalized
+                                          
+                                          curr_count_norm[curr_neighbor_idx] <-
+                                            curr_count_norm[curr_neighbor_idx] + 1
                                         }
                                       }
-    # if(verbose == TRUE){
-    #   print("merging data...")
-    # }
-    
-    df_normalized_raw <- rbind(df_normalized_raw, curr_df_normalized_raw)
-    
-    if(verbose == TRUE){
-      cat(round(k*100/length(starts),2), "%\n")
-      # print("*******")
-    }
-  }
+                                      
+                                      list(sum_norm = curr_sum_norm,
+                                           count_norm = curr_count_norm)
+                                    }
   
   # terminate cluster
   stopImplicitCluster()
@@ -442,17 +539,31 @@ normalize_local_heights <- function(df,
   }
   
   if(verbose == TRUE){
-    cat("Summarizing ", nrow(df_normalized_raw), " results...\n")
+    cat("Summarizing ", sum(normalized_accumulated$count_norm), " results...\n")
   }
   
   # calculate means per facet - i.e. row = n
-  df_normalized_summarized <- df_normalized_raw %>%
-    group_by(n) %>%
-    summarise(local_height_norm = mean(local_heights_quantiles_normalized ))
+  # This replaces:
+  #
+  # df_normalized_raw %>%
+  #   group_by(n) %>%
+  #   summarise(local_height_norm = mean(local_heights_quantiles_normalized))
+  #
+  # but produces the same quantity:
+  #   local_height_norm = sum of all assigned normalized values /
+  #                       number of assigned normalized values
+  df_normalized_summarized <- tibble(n = seq_len(n_total),
+                                     local_height_norm =
+                                       normalized_accumulated$sum_norm /
+                                       normalized_accumulated$count_norm)
   
   df_fin <- df %>%
     left_join(df_normalized_summarized, by = "n") %>%
     select(-n)
+  
+  # -------------------------------------------------------------------------
+  # END OPTIMIZED NORMALIZATION CORE
+  # -------------------------------------------------------------------------
   
   # fill NA values (points where no other points were int the search radius around them) with median value
   df_fin <- df_fin %>%
@@ -546,8 +657,7 @@ normalize_local_heights <- function(df,
                select(x,y,z) %>%
                mutate(x = x+max(x)+0.5*diff(range(x)),
                       z = z-max(z)-0.5*diff(range(z))),
-             col = df_fin %>%
-               pull(local_height_log_norm_col),
+             col = df_fin %>% pull(local_height_log_norm_col),
              aspect = "iso",
              size=3)
     
