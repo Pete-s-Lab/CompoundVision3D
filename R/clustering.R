@@ -536,6 +536,9 @@ find_facets_rough <- function(df,
 #' @param n_steps Number of test cut heights for the cluster-number curve.
 #' @param trials Retained for backwards compatibility.
 #' @param plot_file Optional PDF path for saving diagnostic plots.
+#' @param initial_h_min,initial_h_max Initial y-axis limits for the first interactive dendrogram plot.
+#' @param dendrogram_x_fraction Fraction of the dendrogram leaves shown in the zoomed x-axis.
+#' @param dendrogram_min_x_span Minimum number of leaves shown in the zoomed dendrogram.
 #' @param interactive If TRUE, missing h_min/h_max/h_final values are selected
 #' using locator() on explicitly plotted dendrograms.
 #' @param verbose Print progress messages.
@@ -552,6 +555,10 @@ find_facet_candidates <- function(df,
                                   n_steps = 100,
                                   trials = 9,
                                   plot_file = NULL,
+                                  initial_h_min = 5,
+                                  initial_h_max = 30,
+                                  dendrogram_x_fraction = 1/8,
+                                  dendrogram_min_x_span = 60,
                                   interactive = TRUE,
                                   verbose = FALSE){
   # Dependencies ------------------------------------------------------------
@@ -604,13 +611,28 @@ find_facet_candidates <- function(df,
   d <- dist(coords, method = "euclidean")
   hc1 <- hclust(d, method = "complete")
 
+  # Dendrogram zoom settings. The historical helper used x_total / 4 and
+  # y_total / 5. For the GUI-sized device we zoom further on x by default and
+  # use a fixed initial y-window of 5-30 for choosing h_min/h_max.
+  x_total <- length(hc1$order)
+  xlim_zoom <- c(0, max(dendrogram_min_x_span, x_total * dendrogram_x_fraction))
+  if(x_total < dendrogram_min_x_span) xlim_zoom[2] <- x_total
+  initial_ylim <- c(initial_h_min, initial_h_max)
+  if(initial_ylim[1] > initial_ylim[2]) initial_ylim <- rev(initial_ylim)
+
   # Plot before locator(); otherwise locator() may listen to an unrelated device.
   if(is.null(h_min) | is.null(h_max)){
     if(interactive != TRUE) stop("h_min and h_max must be supplied when interactive = FALSE.")
     if(verbose == TRUE) cat("Plotting full dendrogram for min/max cutoff selection...\n")
-    plot(as.dendrogram(hc1), cex = 0.1, leaflab = "none",
+    plot(as.dendrogram(hc1),
+         cex = 0.1,
+         leaflab = "none",
+         xlim = xlim_zoom,
+         ylim = initial_ylim,
          main = "Select minimum and maximum cut heights on the y-axis",
-         xlab = "", sub = "")
+         xlab = "",
+         sub = "")
+    abline(h = initial_ylim, col = "blue", lty = 2)
     cat("Select minimum and maximum cut-off points on the y-axis.\n")
     h.cutoff.df <- locator(type = "n", n = 2)
     h_min <- min(h.cutoff.df$y, na.rm = TRUE)
@@ -644,6 +666,7 @@ find_facet_candidates <- function(df,
          xlab = "",
          main = "Zoomed hierarchical clustering dendrogram",
          sub = "",
+         xlim = xlim_zoom,
          ylim = c(h_min, h_max),
          leaflab = "none")
     abline(h = c(h_min, h_max), col = "blue", lty = 2)

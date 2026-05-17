@@ -15,6 +15,10 @@ find_facet_candidates(
   n_steps = 100,
   trials = 9,
   plot_file = NULL,
+  initial_h_min = 5,
+  initial_h_max = 30,
+  dendrogram_x_fraction = 1/8,
+  dendrogram_min_x_span = 60,
   interactive = TRUE,
   verbose = FALSE
 )
@@ -38,6 +42,12 @@ from the y-coordinate of one click on the zoomed dendrogram.}
 \item{trials}{Retained for backwards compatibility.}
 
 \item{plot_file}{Optional PDF path for saving diagnostic plots.}
+
+\item{initial_h_min, initial_h_max}{Initial y-axis limits for the first interactive dendrogram plot.}
+
+\item{dendrogram_x_fraction}{Fraction of the dendrogram leaves shown in the zoomed x-axis.}
+
+\item{dendrogram_min_x_span}{Minimum number of leaves shown in the zoomed dendrogram.}
 
 \item{interactive}{If TRUE, missing h_min/h_max/h_final values are selected
 using locator() on explicitly plotted dendrograms.}
