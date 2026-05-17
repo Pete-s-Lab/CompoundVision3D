@@ -52,6 +52,45 @@ calculate_local_heights <- function(df,
     v/sqrt(sum(v^2))
   }
   
+  # calculate once, not once per vertex
+  search_diam_local_height <- round(1/8 * search_diam, 2)
+  
+  # extract coordinates and normals once for faster repeated access
+  coords <- as.matrix(df[, c("x", "y", "z")])
+  normals <- as.matrix(df[, c("norm.x", "norm.y", "norm.z")])
+  
+  storage.mode(coords) <- "double"
+  storage.mode(normals) <- "double"
+  
+  # build simple spatial grid to avoid filtering the full data frame for every point
+  use_grid <- is.finite(search_diam_local_height) &&
+    search_diam_local_height > 0 &&
+    all(is.finite(coords))
+  
+  if(use_grid){
+    
+    if(verbose == TRUE){
+      cat("Building spatial grid...\n")
+    }
+    
+    coord_origin <- apply(coords, 2, min)
+    
+    cell_mat <- floor(sweep(coords, 2, coord_origin, FUN = "-") /
+                        search_diam_local_height)
+    
+    cell_keys <- paste(cell_mat[, 1],
+                       cell_mat[, 2],
+                       cell_mat[, 3],
+                       sep = "_")
+    
+    cell_map <- split(seq_len(nrow(df)), cell_keys)
+    
+    neighbour_offsets <- expand.grid(dx = -1:1,
+                                     dy = -1:1,
+                                     dz = -1:1,
+                                     KEEP.OUT.ATTRS = FALSE)
+  }
+  
   if(verbose == TRUE){
     cat("Starting analyses on cluster...\n")
     start_time <- Sys.time()
@@ -60,57 +99,79 @@ calculate_local_heights <- function(df,
   # calculate distance of all vertices to local plane within search_diam
   registerDoParallel(cores)
   
-  
   if(verbose == TRUE){
     cat("Calculating local heights for all", nrow(df), "vertices...\n")
   }
+  
   local_heights <- foreach(i = 1:nrow(df),
-                           .combine=rbind, .packages=c('dplyr', 'geometry')) %dopar% {
+                           .combine = c,
+                           .packages = c('dplyr', 'geometry')) %dopar% {
                              
-                             curr.facet.x.y.z <- df %>%
-                               dplyr::slice(i) %>%
-                               select(x, y, z) %>%
-                               as.numeric()
+                             curr.facet.x.y.z <- coords[i, ]
                              
-                             search_diam_local_height <- round(1/8*search_diam,2)
+                             if(use_grid){
+                               
+                               # get all points from the current and directly neighbouring grid cells
+                               curr_cell <- cell_mat[i, ]
+                               
+                               candidate_keys <- paste(curr_cell[1] + neighbour_offsets$dx,
+                                                       curr_cell[2] + neighbour_offsets$dy,
+                                                       curr_cell[3] + neighbour_offsets$dz,
+                                                       sep = "_")
+                               
+                               idx <- unlist(cell_map[candidate_keys], use.names = FALSE)
+                               
+                               if(length(idx) > 0){
+                                 candidate_coords <- coords[idx, , drop = FALSE]
+                                 
+                                 # exact same cubic neighbourhood filter as in the original function
+                                 keep <- candidate_coords[, 1] >= curr.facet.x.y.z[1] - search_diam_local_height &
+                                   candidate_coords[, 2] >= curr.facet.x.y.z[2] - search_diam_local_height &
+                                   candidate_coords[, 3] >= curr.facet.x.y.z[3] - search_diam_local_height &
+                                   candidate_coords[, 1] <= curr.facet.x.y.z[1] + search_diam_local_height &
+                                   candidate_coords[, 2] <= curr.facet.x.y.z[2] + search_diam_local_height &
+                                   candidate_coords[, 3] <= curr.facet.x.y.z[3] + search_diam_local_height
+                                 
+                                 idx <- idx[!is.na(keep) & keep]
+                               }
+                               
+                             } else {
+                               
+                               # fallback: original full search, but using matrix operations instead of dplyr
+                               keep <- coords[, 1] >= curr.facet.x.y.z[1] - search_diam_local_height &
+                                 coords[, 2] >= curr.facet.x.y.z[2] - search_diam_local_height &
+                                 coords[, 3] >= curr.facet.x.y.z[3] - search_diam_local_height &
+                                 coords[, 1] <= curr.facet.x.y.z[1] + search_diam_local_height &
+                                 coords[, 2] <= curr.facet.x.y.z[2] + search_diam_local_height &
+                                 coords[, 3] <= curr.facet.x.y.z[3] + search_diam_local_height
+                               
+                               idx <- which(!is.na(keep) & keep)
+                             }
                              
-                             curr.facets.df <- df %>%
-                               dplyr::filter(x  >= curr.facet.x.y.z[1] - search_diam_local_height &
-                                               y  >= curr.facet.x.y.z[2] - search_diam_local_height &
-                                               z  >= curr.facet.x.y.z[3] - search_diam_local_height &
-                                               x  <= curr.facet.x.y.z[1] + search_diam_local_height &
-                                               y  <= curr.facet.x.y.z[2] + search_diam_local_height &
-                                               z  <= curr.facet.x.y.z[3] + search_diam_local_height )
-                             # print(nrow(curr.facets.df))
-                             
-                             # calculate current average facet normal
-                             curr.facets.av.normal <- c(mean(curr.facets.df$norm.x), 
-                                                        mean(curr.facets.df$norm.y), 
-                                                        mean(curr.facets.df$norm.z))
-                             
-                             # calculate current facet center
-                             curr.facets.center <- c(mean(curr.facets.df$x), 
-                                                     mean(curr.facets.df$y), 
-                                                     mean(curr.facets.df$z))
-                             
-                             
-                             # create unit normal vector of plane normal
-                             curr.facets.av.normal.normailzed <- normalize_vector(curr.facets.av.normal)
-                             
-                             # find vector of current point to arbitrary other point on plane (here: plane center)
-                             vector_point_facet_center <- curr.facet.x.y.z-curr.facets.center
-                             
-                             
-                             curr_local_height <- dot(vector_point_facet_center,curr.facets.av.normal.normailzed, 
-                                                      d=TRUE)
-                             
-                             # plot3d(curr.facets.df[2:4], aspect = "iso")
-                             # par3d("windowRect"= c(2300,200,3400,1000))
-                             # lines3d(x=c(curr.facets.center[1], curr.facets.center[1]+curr.facets.av.normal.normailzed[1]),
-                             #         y=c(curr.facets.center[2], curr.facets.center[2]+curr.facets.av.normal.normailzed[2]),
-                             #         z=c(curr.facets.center[3], curr.facets.center[3]+curr.facets.av.normal.normailzed[3]))
-                             
-                             # df$local_height[n] <- curr_local_height
+                             if(length(idx) == 0){
+                               curr_local_height <- NaN
+                             } else {
+                               
+                               # calculate current average facet normal
+                               curr.facets.av.normal <- c(mean(normals[idx, 1]), 
+                                                          mean(normals[idx, 2]), 
+                                                          mean(normals[idx, 3]))
+                               
+                               # calculate current facet center
+                               curr.facets.center <- c(mean(coords[idx, 1]), 
+                                                       mean(coords[idx, 2]), 
+                                                       mean(coords[idx, 3]))
+                               
+                               # create unit normal vector of plane normal
+                               curr.facets.av.normal.normailzed <- normalize_vector(curr.facets.av.normal)
+                               
+                               # find vector of current point to arbitrary other point on plane (here: plane center)
+                               vector_point_facet_center <- curr.facet.x.y.z - curr.facets.center
+                               
+                               curr_local_height <- dot(vector_point_facet_center,
+                                                        curr.facets.av.normal.normailzed, 
+                                                        d = TRUE)
+                             }
                              
                              tmp <- curr_local_height
                            }
