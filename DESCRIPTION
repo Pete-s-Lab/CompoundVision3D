@@ -1,10 +1,10 @@
-Package: CompoundVision3D
+Package: CV3D
 Title: Three-dimensional Compound Eye Analysis
 Description: xxx.
-Version: 0.0.9056
+Version: 0.1.0
 License: MIT + file LICENSE
-URL: https://github.com/Peter-T-Ruehr/compound_vision_3D
-BugReports: https://github.com/Peter-T-Ruehr/compound_vision_3D/issues
+URL: https://github.com/Pete-s-Lab/CV3D
+BugReports: https://github.com/Pete-s-Lab/CV3D/issues
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
@@ -13,27 +13,23 @@ Imports:
   doParallel,
   doSNOW,
   dplyr,
-	forceR,
+  filesstrings,
+  forceR,
   foreach,
   geometry,
   grDevices,
-  gridExtra,
-	knitr,
-	magrittr,
-	MASS,
-	openxlsx,
-	parallel,
-	progress,
-	RANN,
-	readr,
-	reshape2,
-	rgl,
-	rjson,
-	stats,
-	tidyr,
-	tidyverse,
-	viridis,
-	xlsx
+  knitr,
+  magrittr,
+  parallel,
+  progress,
+  RANN,
+  readr,
+  reshape2,
+  rgl,
+  stats,
+  stringr,
+  tidyr,
+  viridisLite
 Depends: 
     R (>= 4.0)
 VignetteBuilder: knitr
