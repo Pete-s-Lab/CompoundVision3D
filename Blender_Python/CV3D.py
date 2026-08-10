@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "CompoundVision3D",
+    "name": "CV3D",
     "blender": (3, 0, 0),
     "category": "View3D",
     "author": "Peter T. Rühr",
     "version": (0, 0, 9023),
-    "description": "CompoundVision3D Blender Plugin. Part of the compound eye property extraction workflow published by Rühr, Pande & Blanke: xxx.",
+    "description": "CV3D Blender Plugin. Part of the compound eye property extraction workflow published by Rühr, Pande & Blanke: xxx.",
 }
 
 import bpy
@@ -151,11 +151,11 @@ class SCRIPT_4_OT_Operator(bpy.types.Operator):
 
 # ------------------ GUI PANEL ------------------
 class MYPLUGIN_PT_Panel(bpy.types.Panel):
-    bl_label = "CompoundVision3D Panel"
+    bl_label = "CV3D Panel"
     bl_idname = "MYPLUGIN_PT_Panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "CompoundVision3D"
+    bl_category = "CV3D"
     
     def draw(self, context):
         layout = self.layout
