@@ -1,12 +1,6 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^cran-comments\.md$
-
-# misc
-#^data/
-#^data_raw/
-^data/ImageJ
-^data/Blender_Python
-^data/GitHub_example
-^README.html
-
+^README\.html$
+^_bkp
+^validation

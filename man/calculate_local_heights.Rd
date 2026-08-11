@@ -2,33 +2,88 @@
 % Please edit documentation in R/local_heights.R
 \name{calculate_local_heights}
 \alias{calculate_local_heights}
-\title{Find Local Vertex Heights}
+\title{Calculate Local Surface Heights}
 \usage{
 calculate_local_heights(
   df,
-  search_diam,
+  neighbourhood_radius,
+  colour_lower_quantile = 0.1,
+  colour_upper_quantile = 0.9,
+  contrast_lower_quantile = 0.5,
+  contrast_upper_quantile = 0.9,
   cores = 1,
-  log_scale = TRUE,
   plot_file = NULL,
   verbose = FALSE,
   invert = FALSE
 )
 }
 \arguments{
-\item{df}{A tibble containing triangle center coordinates in columns \verb{x, y, z}.}
+\item{df}{A data frame or tibble containing triangle-centre coordinates
+(\code{x}, \code{y}, \code{z}) and triangle-normal components (\code{norm.x}, \code{norm.y},
+\code{norm.z}).}
 
-\item{search_diam}{A numerical value defining the size of the search diameter
-of defining the local plane.}
+\item{neighbourhood_radius}{Numeric. Radius, in micrometres (µm), of the
+spherical Euclidean neighbourhood used to define the local reference plane.
+CV3D currently assumes all input coordinates are expressed in micrometres.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{colour_lower_quantile}{Numeric. Lower quantile used to clip the
+greyscale colour representation of raw local heights. Default: \code{0.10}.}
+
+\item{colour_upper_quantile}{Numeric. Upper quantile used to clip the
+greyscale colour representation of raw local heights. Default: \code{0.90}.}
+
+\item{contrast_lower_quantile}{Numeric. Lower quantile used after the
+historical \code{10^local_height} peak-enhancing transform before rescaling the
+contrast variable to 0--1. Default: \code{0.50}.}
+
+\item{contrast_upper_quantile}{Numeric. Upper quantile used after the
+peak-enhancing transform before rescaling to 0--1. Default: \code{0.90}.}
+
+\item{cores}{Integer. Number of processor cores used for parallel
+calculation. Default: \code{1}.}
+
+\item{plot_file}{Character or \code{NULL}. If a file path is supplied, write a
+PDF containing diagnostic plots of the raw, quantile-filtered, and
+contrast-enhanced local-height values. Default: \code{NULL}.}
+
+\item{verbose}{Logical. If \code{TRUE}, print progress and timing information.
+Default: \code{FALSE}.}
+
+\item{invert}{Logical. If \code{TRUE}, multiply calculated local heights by
+\code{-1}. Default: \code{FALSE}.}
 }
 \value{
-Tibble \code{df} with additional column \code{local_height}.
+The input data with five additional columns: \code{local_height}, the
+signed local surface height in micrometres; \code{local_height_col}, colours representing the
+raw local heights; \code{local_height_filtered_col}, colours based on
+quantile-filtered local heights; \code{local_height_contrast}, a 0--1
+peak-enhancing contrast scale based on \code{10^local_height} after clipping
+to configurable quantiles (50th and 90th percentiles by default); and \code{local_height_contrast_col}, colours
+based on that contrast scale.
 }
 \description{
-Calculate distance of vertices from local plane.
+Calculates the local height of each triangle centre in a surface mesh
+relative to its surrounding surface. For each triangle, a local reference
+plane is defined from the mean centre coordinates and mean surface normal of
+neighbouring triangles. The signed distance of the focal triangle centre
+from this plane is returned as its local surface height.
+}
+\details{
+Local surface heights are used by CV3D to identify the raised centres of
+compound-eye facets.
 }
 \examples{
-# xxx: add example
+surface <- expand.grid(x = -1:1, y = -1:1)
+surface$z <- 0.1 * (surface$x^2 + surface$y^2)
+surface$norm.x <- 0
+surface$norm.y <- 0
+surface$norm.z <- 1
+heights <- calculate_local_heights(
+  surface,
+  neighbourhood_radius = 1,
+  cores = 1,
+  verbose = FALSE
+)
+heights[, c("x", "y", "z", "local_height")]
 
 }

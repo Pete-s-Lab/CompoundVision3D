@@ -1,1138 +1,978 @@
-#' Calculates the angle between 2 vectors
+#' Calculate the Angle Between Two 3D Vectors
 #'
-#' Rotates 3D point cloud according to one defined vector so that this vector
-#' is aligned to one of the global coordinate system axes.
+#' Calculates the smallest angle between two vectors in three-dimensional
+#' space from their normalized dot product.
 #'
-#' @param df A tibble containing coordinates in columns `x, y, z`.
-#' @param line_points A 2x3 tibble containing coordinates of line to align the 
-#' point cloud to. Must contain one row per point and columns `x, y, z`.
-#' @param axis A character string defining the global axis to align to. Must be 
-#' `x`, `y`, or `z`.
-#' @return Returns a tibble with the aligned coordinates in columns `x, y, z`.
+#' @param a Numeric vector of length three.
+#' @param b Numeric vector of length three.
+#' @param unit Character. Unit of the returned angle. Either `"radians"` or
+#'   `"degrees"`. Default: `"radians"`.
 #'
-#' @export
-#' @examples
-#' xxx: add example and change above descsriptionand parameters
+#' @return A numeric scalar containing the angle between `a` and `b`. The
+#'   returned angle lies between 0 and pi radians, or between 0 and 180
+#'   degrees. If either vector has zero length, `NA_real_` is returned.
 #'
-# calculate angle between 2 vectors (types: d = degrees, r = radians, both = c(regrees, radians))
-calc_delta.phi <- function(curr.lens, curr.partner, type){
-  #message('- ', curr.lens)
-  #message('p = ', curr.partner)
-  curr.x_norm_lens <- curr.lens[1]
-  curr.y_norm_lens <- curr.lens[2]
-  curr.z_norm_lens <- curr.lens[3]
-  
-  curr.x_norm_partner <- curr.partner[1]
-  curr.y_norm_partner <- curr.partner[2]
-  curr.z_norm_partner <- curr.partner[3]
-  
-  curr_delta_phi.rad <- acos(((curr.x_norm_lens * curr.x_norm_partner)
-                              + (curr.y_norm_lens * curr.y_norm_partner)
-                              + (curr.z_norm_lens * curr.z_norm_partner))
-                             /
-                               (sqrt(curr.x_norm_lens**2
-                                     + curr.y_norm_lens**2
-                                     + curr.z_norm_lens**2) *
-                                  sqrt(curr.x_norm_partner**2
-                                       + curr.y_norm_partner**2
-                                       + curr.z_norm_partner**2)))
-  curr_delta_phi.deg <- curr_delta_phi.rad*180/pi
-  # message(paste0('-> ', curr_delta_phi.deg, '?'))
-  if(type == "d"){
-    return <- curr_delta_phi.deg
-  } else if(type == "r"){
-    return <- curr_delta_phi.rad
-  } else if(type == "b"){
-    return <- c(curr_delta_phi.deg, curr_delta_phi.rad)
+#' @keywords internal
+vector_angle <- function(a, b, unit = c("radians", "degrees")) {
+  unit <- match.arg(unit)
+  a <- as.numeric(a)
+  b <- as.numeric(b)
+
+  if (length(a) != 3 || length(b) != 3 || any(!is.finite(a)) || any(!is.finite(b))) {
+    stop("Both vectors must contain three finite numeric values.", call. = FALSE)
   }
+
+  magnitude_a <- sqrt(sum(a^2))
+  magnitude_b <- sqrt(sum(b^2))
+  if (magnitude_a == 0 || magnitude_b == 0) return(NA_real_)
+
+  cos_angle <- sum(a * b) / (magnitude_a * magnitude_b)
+  cos_angle <- max(-1, min(1, cos_angle))
+  angle <- acos(cos_angle)
+
+  if (unit == "degrees") angle <- angle * 180 / pi
+  angle
 }
 
 
-
-
-#' Calculate distance between two points in 3D.
+#' Identify Neighbouring Facets
 #'
-#' xxx: add description
+#' Identifies likely neighbouring facets from their three-dimensional
+#' positions. Facet coordinates are projected onto a unit sphere, so
+#' neighbourhood relationships are evaluated by angular rather than Cartesian
+#' distance.
 #'
-#' @param point1 A `vector` containing the `numeric` `x, y` and `z` coordinates 
-#' pf point 1.
-#' @param point2 A `vector` containing the `numeric` `x, y` and `z` coordinates 
-#' pf point 2.
-#' #' @param verbose A `logical` value indicating if message printing is permitted.
-#' Default: `FALSE`. 
-#' @return Returns the `numeric` distance between point 1 and point 2.
-#' @importFrom dplyr add_row
+#' Candidate neighbour links are obtained from a convex-hull triangulation of
+#' the normalized facet positions. Links that are long relative to the local
+#' angular facet spacing are removed. Facets with too few remaining neighbours
+#' are supplemented with their nearest angular neighbours, and the number of
+#' neighbours can optionally be limited.
+#'
+#' @param df A data frame or tibble containing one row per facet.
+#' @param x Character. Name of the column containing x coordinates. Default:
+#'   `"x"`.
+#' @param y Character. Name of the column containing y coordinates. Default:
+#'   `"y"`.
+#' @param z Character. Name of the column containing z coordinates. Default:
+#'   `"z"`.
+#' @param id Character. Name of the column containing unique facet identifiers.
+#'   Default: `"ID"`.
+#' @param center Logical. If `TRUE`, centre the point cloud on its coordinate
+#'   centroid before projecting points onto the unit sphere. Default: `TRUE`.
+#' @param k_local Integer. Number of nearest angular neighbours used to
+#'   estimate the local facet spacing. Default: `6`.
+#' @param knn_search Integer. Number of nearest angular neighbours retained as
+#'   candidates for supplementing facets with too few triangulation
+#'   neighbours. Default: `20`.
+#' @param edge_tol Numeric. Relative tolerance for retaining triangulation
+#'   edges. An edge is retained when its angular length does not exceed
+#'   `(1 + edge_tol)` times the larger local-spacing estimate of its two
+#'   endpoints. Default: `0.5`.
+#' @param min_neighbours Integer. Minimum number of neighbours targeted by
+#'   the nearest-neighbour fallback for sparse facets. Default: `3`.
+#' @param max_neighbours Integer or `NULL`. Maximum number of reciprocal
+#'   neighbours retained for each facet. If `NULL`, no maximum is applied.
+#'   Default: `6`.
+#'
+#' @return The input data with two additional columns: `neighbours`, containing
+#'   the IDs of neighbouring facets separated by `"; "`, and
+#'   `number_of_neighbours`, containing the number of neighbours assigned to
+#'   each facet. Neighbour relationships are reciprocal: if facet A lists facet
+#'   B, facet B also lists facet A.
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' neighbours <- find_neighbours(cv3d_example_facets)
+#' head(neighbours[, c("ID", "neighbours", "number_of_neighbours")])
 #'
 #' @export
-#' @examples
-#' xxx: add example
-#'
-distance_3D <- function(point1, 
-                        point2,
-                        verbose = FALSE) {
-  # Ensure the points are numeric vectors of length 3
-  if (length(point1) != 3 || length(point2) != 3) {
-    stop("Both points must be numeric vectors of length 3.")
-  }
-  
-  # Calculate the differences in each dimension
-  diff <- point2 - point1
-  
-  # Compute the squared differences and sum them up
-  sum_of_squares <- sum(diff^2)
-  
-  # Take the square root of the sum of squared differences to get the distance
-  distance <- sqrt(sum_of_squares)
-  
-  if(verbose == TRUE){
-    cat("All done!\n")
-  }
-  return(distance)
-}
-
-
-
-
-
-#' Find facet neighbours and Calculate facet sizes
-#'
-#' xxx: add description
-#'
-#' @param df A `tibble` containing facet coordinates in columns `x, y, z`.
-#' @param facet_size A `numeric` value containing the estimated facet size.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-#' @param verbose A `logical` value indicating if message printing is permitted.
-#' Default: `FALSE`. 
-#' @return Returns a `tibble` containing the additional columns with info on 
-#' facet size, facet neighbours and the number of neighbours of each facet.
-#'
-#' @export
-#' @examples
-#' xxx: add example
-#'
 find_neighbours <- function(df,
                             x = "x", y = "y", z = "z",
                             id = "ID",
                             center = TRUE,
                             k_local = 6,
                             knn_search = 20,
-                            edge_tol = 0.35,
-                            max_neighbours = 6,
-                            color_option = "D") {
-  
-  # # testing
-  # df = curr_facets
-  # x = "x"
-  # y = "y"
-  # z = "z"
-  # id = "ID"
-  # center = TRUE
-  # k_local = 6
-  # knn_search = 20
-  # edge_tol = 0.5
-  # max_neighbours = 6
-  # color_option = "D"
-  
-  if (!requireNamespace("geometry", quietly = TRUE))
-    stop("Package 'geometry' required. install.packages('geometry')")
-  if (!requireNamespace("RANN", quietly = TRUE))
-    stop("Package 'RANN' required. install.packages('RANN')")
-  if (!requireNamespace("viridisLite", quietly = TRUE))
-    stop("Package 'viridisLite' required. install.packages('viridisLite')")
-  
-  stopifnot(all(c(x, y, z, id) %in% names(df)))
-  if (anyDuplicated(df[[id]]) > 0) stop("IDs must be unique.")
-  if (knn_search < k_local) stop("knn_search must be >= k_local")
-  
-  pts <- as.matrix(df[, c(x, y, z)])
+                            edge_tol = 0.5,
+                            min_neighbours = 3,
+                            max_neighbours = 6) {
+  if (!is.data.frame(df)) stop("df must be a data frame or tibble.", call. = FALSE)
+  if (!all(c(x, y, z, id) %in% names(df))) {
+    stop("Missing required coordinate or ID columns.", call. = FALSE)
+  }
+  if (anyDuplicated(df[[id]]) > 0) stop("IDs must be unique.", call. = FALSE)
+  if (!is.logical(center) || length(center) != 1 || is.na(center)) {
+    stop("center must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (!is.numeric(k_local) || length(k_local) != 1 || !is.finite(k_local) ||
+      k_local < 1 || k_local != as.integer(k_local)) {
+    stop("k_local must be a positive integer.", call. = FALSE)
+  }
+  if (!is.numeric(knn_search) || length(knn_search) != 1 || !is.finite(knn_search) ||
+      knn_search < 1 || knn_search != as.integer(knn_search)) {
+    stop("knn_search must be a positive integer.", call. = FALSE)
+  }
+  if (knn_search < k_local) stop("knn_search must be >= k_local.", call. = FALSE)
+  if (!is.numeric(edge_tol) || length(edge_tol) != 1 || !is.finite(edge_tol) || edge_tol < 0) {
+    stop("edge_tol must be a single finite number >= 0.", call. = FALSE)
+  }
+  if (!is.numeric(min_neighbours) || length(min_neighbours) != 1 ||
+      !is.finite(min_neighbours) || min_neighbours < 0 || min_neighbours != as.integer(min_neighbours)) {
+    stop("min_neighbours must be a non-negative integer.", call. = FALSE)
+  }
+  if (!is.null(max_neighbours) &&
+      (!is.numeric(max_neighbours) || length(max_neighbours) != 1 ||
+       !is.finite(max_neighbours) || max_neighbours < 1 ||
+       max_neighbours != as.integer(max_neighbours))) {
+    stop("max_neighbours must be NULL or a positive integer.", call. = FALSE)
+  }
+  min_neighbours <- as.integer(min_neighbours)
+  k_local <- as.integer(k_local)
+  knn_search <- as.integer(knn_search)
+  if (!is.null(max_neighbours) && min_neighbours > max_neighbours) {
+    stop("min_neighbours cannot exceed max_neighbours.", call. = FALSE)
+  }
+
+  pts <- as.matrix(df[, c(x, y, z), drop = FALSE])
   storage.mode(pts) <- "double"
+  if (nrow(pts) < 4) stop("At least four facet positions are required.", call. = FALSE)
+  if (any(!is.finite(pts))) stop("Facet coordinates must be finite.", call. = FALSE)
+
   n <- nrow(pts)
-  
   if (center) pts <- sweep(pts, 2, colMeans(pts), "-")
-  
+
   norms <- sqrt(rowSums(pts^2))
-  if (any(norms == 0)) stop("Some points have zero norm after centering; cannot normalize.")
+  if (any(norms == 0)) stop("Some points have zero norm after centering; cannot normalize.", call. = FALSE)
   u <- pts / norms
-  
+
   ang_dist <- function(ui, uj) {
     d <- sum(ui * uj)
     d <- max(min(d, 1), -1)
     acos(d)
   }
-  
-  nn <- RANN::nn2(u, u, k = knn_search + 1)
-  idx  <- nn$nn.idx[, -1, drop = FALSE]
-  dch  <- nn$nn.dists[, -1, drop = FALSE]
+
+  knn_eff <- min(as.integer(knn_search), n - 1L)
+  k_local_eff <- min(as.integer(k_local), knn_eff)
+  nn <- RANN::nn2(u, u, k = knn_eff + 1L)
+  idx <- nn$nn.idx[, -1, drop = FALSE]
+  dch <- nn$nn.dists[, -1, drop = FALSE]
   dang <- 2 * asin(pmin(dch / 2, 1))
-  
-  local_scale <- apply(dang[, 1:k_local, drop = FALSE], 1, median, na.rm = TRUE)
-  
+
+  local_scale <- apply(dang[, seq_len(k_local_eff), drop = FALSE], 1, stats::median, na.rm = TRUE)
+
   tri <- geometry::convhulln(u, options = "Qt")
-  if (is.null(tri) || nrow(tri) == 0) stop("convhulln failed (degenerate point set?).")
-  
+  if (is.null(tri) || nrow(tri) == 0) stop("convhulln failed (degenerate point set?).", call. = FALSE)
+
   edge_pairs <- function(a, b) cbind(pmin(a, b), pmax(a, b))
   e <- rbind(
-    edge_pairs(tri[,1], tri[,2]),
-    edge_pairs(tri[,2], tri[,3]),
-    edge_pairs(tri[,3], tri[,1])
+    edge_pairs(tri[, 1], tri[, 2]),
+    edge_pairs(tri[, 2], tri[, 3]),
+    edge_pairs(tri[, 3], tri[, 1])
   )
   e <- unique(e)
   colnames(e) <- c("i", "j")
-  
+
   keep <- logical(nrow(e))
   for (k in seq_len(nrow(e))) {
-    i <- e[k, "i"]; j <- e[k, "j"]
-    th <- (1 + edge_tol) * max(local_scale[i], local_scale[j])
-    keep[k] <- ang_dist(u[i,], u[j,]) <= th
+    i <- e[k, "i"]
+    j <- e[k, "j"]
+    threshold <- (1 + edge_tol) * max(local_scale[i], local_scale[j])
+    keep[k] <- ang_dist(u[i, ], u[j, ]) <= threshold
   }
   e <- e[keep, , drop = FALSE]
-  
-  adj <- vector("list", n)
+
+  adj <- replicate(n, integer(0), simplify = FALSE)
   if (nrow(e) > 0) {
     for (k in seq_len(nrow(e))) {
-      i <- e[k, "i"]; j <- e[k, "j"]
+      i <- e[k, "i"]
+      j <- e[k, "j"]
       adj[[i]] <- c(adj[[i]], j)
       adj[[j]] <- c(adj[[j]], i)
     }
     adj <- lapply(adj, unique)
-  } else {
-    adj <- replicate(n, integer(0), simplify = FALSE)
   }
-  
+
+  minimum_neighbours <- min(min_neighbours, k_local_eff)
+  if (!is.null(max_neighbours)) {
+    max_neighbours <- as.integer(max_neighbours)
+    minimum_neighbours <- min(minimum_neighbours, max_neighbours)
+  }
+
+  # Supplement sparse triangulation regions with nearest angular neighbours.
+  # Every added relationship is inserted in both directions.
   for (i in seq_len(n)) {
-    if (length(adj[[i]]) < min(3, k_local)) {
+    if (length(adj[[i]]) < minimum_neighbours) {
       cand <- idx[i, ]
-      need <- min(3, k_local) - length(adj[[i]])
-      add <- setdiff(cand, c(i, adj[[i]]))
-      if (length(add) > 0)
-        adj[[i]] <- unique(c(adj[[i]], add[seq_len(min(need, length(add)))]))
+      for (j in cand) {
+        if (length(adj[[i]]) >= minimum_neighbours) break
+        if (j == i || j %in% adj[[i]]) next
+        adj[[i]] <- c(adj[[i]], j)
+        adj[[j]] <- unique(c(adj[[j]], i))
+      }
     }
   }
-  
+
   if (!is.null(max_neighbours)) {
-    adj <- lapply(seq_len(n), function(i) {
-      nb <- adj[[i]]
-      if (length(nb) <= max_neighbours) return(nb)
-      dots <- drop(u[nb, , drop = FALSE] %*% u[i, ])
-      ord <- order(1 - dots)
-      nb[ord[seq_len(max_neighbours)]]
-    })
+    edge_length <- function(i, j) ang_dist(u[i, ], u[j, ])
+
+    # Symmetrically prune the longest edges until every facet satisfies the
+    # requested maximum. Prefer removals that do not leave either endpoint
+    # below the fallback minimum.
+    repeat {
+      degree <- lengths(adj)
+      over <- which(degree > max_neighbours)
+      if (length(over) == 0) break
+
+      edge_mat <- do.call(rbind, lapply(over, function(i) {
+        if (length(adj[[i]]) == 0) return(NULL)
+        cbind(i = i, j = adj[[i]])
+      }))
+      if (is.null(edge_mat) || nrow(edge_mat) == 0) break
+      edge_mat <- cbind(
+        i = pmin(edge_mat[, "i"], edge_mat[, "j"]),
+        j = pmax(edge_mat[, "i"], edge_mat[, "j"])
+      )
+      edge_mat <- unique(edge_mat)
+
+      removable <- degree[edge_mat[, "i"]] > minimum_neighbours &
+        degree[edge_mat[, "j"]] > minimum_neighbours
+      candidates <- edge_mat[removable, , drop = FALSE]
+      if (nrow(candidates) == 0) candidates <- edge_mat
+
+      lengths_now <- vapply(seq_len(nrow(candidates)), function(k) {
+        edge_length(candidates[k, "i"], candidates[k, "j"])
+      }, numeric(1))
+      k_remove <- which.max(lengths_now)
+      i <- candidates[k_remove, "i"]
+      j <- candidates[k_remove, "j"]
+      adj[[i]] <- setdiff(adj[[i]], j)
+      adj[[j]] <- setdiff(adj[[j]], i)
+    }
+
+    # If pruning made a facet sparse, refill from nearest angular neighbours
+    # only where both endpoints still have capacity.
+    repeat {
+      degree <- lengths(adj)
+      sparse <- which(degree < minimum_neighbours)
+      if (length(sparse) == 0) break
+      changed <- FALSE
+
+      for (i in sparse) {
+        if (length(adj[[i]]) >= minimum_neighbours ||
+            length(adj[[i]]) >= max_neighbours) next
+        cand <- idx[i, ]
+        for (j in cand) {
+          if (j == i || j %in% adj[[i]]) next
+          if (length(adj[[j]]) >= max_neighbours) next
+          adj[[i]] <- c(adj[[i]], j)
+          adj[[j]] <- unique(c(adj[[j]], i))
+          changed <- TRUE
+          break
+        }
+      }
+
+      if (!changed) break
+    }
   }
-  
+
+  adj <- lapply(adj, function(v) sort(unique(v)))
+
+
   ids <- df[[id]]
-  
-  # ---- ONLY CHANGE: convert neighbour indices to semicolon string ----
-  neighbour_strings <- sapply(adj, function(v) {
+  df$neighbours <- vapply(adj, function(v) {
     if (length(v) == 0) return("")
     paste(ids[v], collapse = "; ")
-  })
-  
-  df$neighbours   <- neighbour_strings
-  df$number.of.neighbours <- lengths(adj)
-  
-  pal <- viridisLite::viridis(6, option = color_option)
-  df$number_of_neighs_cols <- pal[pmin(pmax(df$number.of.neighbours, 1), 6)]
-  
-  
-  
-  
-  return(df)
+  }, character(1))
+  df$number_of_neighbours <- lengths(adj)
+  df
 }
 
 
-
-#' Calculate facet sizes according to their neighbours
+#' Estimate Facet Size from Neighbour Centre Spacing
 #'
-#' xxx: add description
+#' Estimates local facet size from the three-dimensional centre-to-centre
+#' spacing between neighbouring facets. CV3D currently assumes all coordinate
+#' columns are expressed in micrometres (µm).
 #'
-#' @param df A tibble containing facet coordinates in columns `x, y, z`.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-#' @param verbose A `logical` value indicating if message printing is permitted.
-#' Default: `FALSE`.
-#' @return Returns a `tibble` containing the additional columns with info on 
-#' facet normals in x, y, and z direction for each facet.
+#' For each facet, the mean Euclidean centre-to-centre distance to all available
+#' neighbours is used as the initial facet-size estimate. This is a geometric
+#' proxy for local facet diameter rather than a direct measurement of the facet
+#' boundary. A spatially smoothed
+#' estimate is additionally calculated by giving equal weight to the focal
+#' facet's estimate and the mean size estimate of its neighbouring facets.
+#'
+#' @param df A data frame or tibble containing facet identifiers,
+#'   three-dimensional facet-centre coordinates, and a column listing the
+#'   neighbouring facet identifiers.
+#' @param id_col Character. Name of the column containing unique facet
+#'   identifiers. Default: `"ID"`.
+#' @param x_col Character. Name of the column containing x coordinates.
+#'   Default: `"x"`.
+#' @param y_col Character. Name of the column containing y coordinates.
+#'   Default: `"y"`.
+#' @param z_col Character. Name of the column containing z coordinates.
+#'   Default: `"z"`.
+#' @param neighbours_col Character. Name of the column containing neighbouring
+#'   facet identifiers. Default: `"neighbours"`.
+#' @param sep Character. Separator used between facet identifiers in
+#'   `neighbours_col`. Default: `";"`.
+#' @param keep_distances Logical. If `TRUE`, return both the facet-size summary
+#'   and the individual focal-to-neighbour distances. If `FALSE`, return only
+#'   the summary. Default: `FALSE`.
+#'
+#' @return If `keep_distances = FALSE`, a data frame containing `ID`,
+#'   `facet_size`, the mean Euclidean centre spacing to neighbouring facets in
+#'   micrometres; `n_neighbours_used`, the number of valid neighbour distances
+#'   used; and `facet_size_smoothed`, a locally smoothed estimate giving equal
+#'   weight to the focal estimate and the mean estimate of its neighbours. If
+#'   `keep_distances = TRUE`, a list with `summary` and `distances`.
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' neighbours <- find_neighbours(cv3d_example_facets)
+#' facet_sizes <- calculate_facet_size(neighbours)
+#' head(facet_sizes)
 #'
 #' @export
-#' @examples
-#' xxx: add example
 calculate_facet_size <- function(df,
                                  id_col = "ID",
-                                 x_col  = "x",
-                                 y_col  = "y",
-                                 z_col  = "z",
+                                 x_col = "x",
+                                 y_col = "y",
+                                 z_col = "z",
                                  neighbours_col = "neighbours",
                                  sep = ";",
                                  keep_distances = FALSE) {
-  stopifnot(all(c(id_col, x_col, y_col, z_col, neighbours_col) %in% names(df)))
-  
-  suppressPackageStartupMessages({
-    library(dplyr)
-    library(tidyr)
-    library(stringr)
-  })
-  
-  coords <- df %>%
-    select(
-      ID = all_of(id_col),
-      x  = all_of(x_col),
-      y  = all_of(y_col),
-      z  = all_of(z_col)
-    ) %>%
-    mutate(ID = as.character(ID))
-  
-  long <- df %>%
-    transmute(
-      ID = as.character(.data[[id_col]]),
-      neighbours_raw = as.character(.data[[neighbours_col]])
-    ) %>%
-    mutate(neighbours_raw = if_else(is.na(neighbours_raw), "", neighbours_raw)) %>%
-    separate_rows(neighbours_raw, sep = fixed(sep)) %>%
-    transmute(
-      ID,
-      neighbour_ID = str_trim(neighbours_raw)
-    ) %>%
-    filter(neighbour_ID != "")
-  
-  dists <- long %>%
-    left_join(coords, by = "ID") %>%
-    left_join(coords, by = c("neighbour_ID" = "ID"), suffix = c("", "_nbr")) %>%
-    mutate(
-      dist = sqrt((x - x_nbr)^2 + (y - y_nbr)^2 + (z - z_nbr)^2)
+  required <- c(id_col, x_col, y_col, z_col, neighbours_col)
+  if (!all(required %in% names(df))) stop("Missing required columns.", call. = FALSE)
+  if (anyDuplicated(df[[id_col]]) > 0) stop("IDs must be unique.", call. = FALSE)
+
+  ids <- as.character(df[[id_col]])
+  coords <- as.matrix(df[, c(x_col, y_col, z_col), drop = FALSE])
+  storage.mode(coords) <- "double"
+
+  parse_neighbours <- function(value) {
+    if (length(value) == 0 || is.na(value) || !nzchar(trimws(as.character(value)))) return(character(0))
+    out <- trimws(strsplit(as.character(value), split = sep, fixed = TRUE)[[1]])
+    out[nzchar(out)]
+  }
+  neighbours <- lapply(df[[neighbours_col]], parse_neighbours)
+
+  distance_rows <- vector("list", nrow(df))
+  facet_size <- rep(NA_real_, nrow(df))
+  n_used <- integer(nrow(df))
+
+  for (i in seq_len(nrow(df))) {
+    nb <- neighbours[[i]]
+    idx <- match(nb, ids)
+    valid <- !is.na(idx)
+    idx <- idx[valid]
+    nb_valid <- nb[valid]
+
+    if (length(idx) == 0) {
+      distance_rows[[i]] <- data.frame(
+        ID = character(), neighbour_ID = character(),
+        x = numeric(), y = numeric(), z = numeric(),
+        x_nbr = numeric(), y_nbr = numeric(), z_nbr = numeric(),
+        dist = numeric(), stringsAsFactors = FALSE
+      )
+      next
+    }
+
+    diffs <- sweep(coords[idx, , drop = FALSE], 2, coords[i, ], "-")
+    distances <- sqrt(rowSums(diffs^2))
+    finite <- is.finite(distances)
+    facet_size[i] <- if (any(finite)) mean(distances[finite]) else NA_real_
+    n_used[i] <- sum(finite)
+
+    distance_rows[[i]] <- data.frame(
+      ID = rep(ids[i], length(idx)),
+      neighbour_ID = nb_valid,
+      x = rep(coords[i, 1], length(idx)),
+      y = rep(coords[i, 2], length(idx)),
+      z = rep(coords[i, 3], length(idx)),
+      x_nbr = coords[idx, 1],
+      y_nbr = coords[idx, 2],
+      z_nbr = coords[idx, 3],
+      dist = distances,
+      stringsAsFactors = FALSE
     )
-  
-  # --- facet size (mean neighbour distance) ---
-  facet_sizes <- dists %>%
-    group_by(ID) %>%
-    summarise(
-      facet_size = mean(dist, na.rm = TRUE),
-      n_used = sum(!is.na(dist)),
-      .groups = "drop"
-    )
-  
-  # --- mean of facet_size + neighbour facet_sizes ---
-  facet_size_with_neighbours <- long %>%
-    left_join(facet_sizes, by = "ID") %>%
-    left_join(facet_sizes,
-              by = c("neighbour_ID" = "ID"),
-              suffix = c("", "_nbr")) %>%
-    group_by(ID) %>%
-    summarise(
-      facet_size_with_neighbours =
-        mean(c(facet_size,
-               facet_size_nbr),
-             na.rm = TRUE),
-      .groups = "drop"
-    )
-  
-  out <- facet_sizes %>%
-    left_join(facet_size_with_neighbours, by = "ID") %>% 
-    rename(size = facet_size,
-           size_avg = facet_size_with_neighbours)
-  
-  
+  }
+
+  neighbour_mean <- rep(NA_real_, nrow(df))
+  for (i in seq_len(nrow(df))) {
+    idx <- match(neighbours[[i]], ids)
+    vals <- facet_size[idx[!is.na(idx)]]
+    vals <- vals[is.finite(vals)]
+    if (length(vals) > 0) neighbour_mean[i] <- mean(vals)
+  }
+
+  out <- data.frame(
+    ID = ids,
+    facet_size = facet_size,
+    n_neighbours_used = n_used,
+    facet_size_smoothed = (facet_size + neighbour_mean) / 2,
+    stringsAsFactors = FALSE
+  )
+
   if (keep_distances) {
+    dists <- if (length(distance_rows) > 0) do.call(rbind, distance_rows) else data.frame()
     return(list(summary = out, distances = dists))
   }
-  return(out)
+  out
 }
 
-# calculate_facet_size <- function(df,
-#                                  id_col = "ID",
-#                                  x_col  = "x",
-#                                  y_col  = "y",
-#                                  z_col  = "z",
-#                                  neighbours_col = "neighbours",
-#                                  sep = ";",
-#                                  keep_distances = FALSE) {
-#   stopifnot(all(c(id_col, x_col, y_col, z_col, neighbours_col) %in% names(df)))
-#   
-#   suppressPackageStartupMessages({
-#     library(dplyr)
-#     library(tidyr)
-#     library(stringr)
-#   })
-#   
-#   coords <- df %>%
-#     select(
-#       ID = all_of(id_col),
-#       x  = all_of(x_col),
-#       y  = all_of(y_col),
-#       z  = all_of(z_col)
-#     ) %>%
-#     mutate(ID = as.character(ID))
-#   
-#   long <- df %>%
-#     transmute(
-#       ID = as.character(.data[[id_col]]),
-#       neighbours_raw = as.character(.data[[neighbours_col]])
-#     ) %>%
-#     mutate(neighbours_raw = if_else(is.na(neighbours_raw), "", neighbours_raw)) %>%
-#     separate_rows(neighbours_raw, sep = fixed(sep)) %>%
-#     transmute(
-#       ID,
-#       neighbour_ID = str_trim(neighbours_raw)
-#     ) %>%
-#     filter(neighbour_ID != "")
-#   
-#   dists <- long %>%
-#     left_join(coords, by = "ID") %>%
-#     left_join(coords, by = c("neighbour_ID" = "ID"), suffix = c("", "_nbr")) %>%
-#     mutate(
-#       dist = sqrt((x - x_nbr)^2 + (y - y_nbr)^2 + (z - z_nbr)^2)
-#     )
-#   
-#   out <- dists %>%
-#     group_by(ID) %>%
-#     summarise(
-#       facet_size = mean(dist, na.rm = TRUE),
-#       n_used = sum(!is.na(dist)),
-#       .groups = "drop"
-#     )
-#   
-#   if (keep_distances) {
-#     return(list(summary = out, distances = dists))
-#   }
-#   return(out)
-# }
 
-
-
-
-
-
-#' Calculate facet normals according to their spacial positions
+#' Estimate Facet Surface Normals
 #'
-#' xxx: add description
+#' Estimates an outward-pointing surface normal for each compound-eye facet
+#' from the three-dimensional positions of the focal facet and its neighbouring
+#' facets.
 #'
-#' @param df A tibble containing facet coordinates in columns `x, y, z`.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-#' @param verbose A `logical` value indicating if message printing is permitted.
-#' Default: `FALSE`.
-#' @return Returns a `tibble` containing the additional columns with info on 
-#' facet normals in x, y, and z direction for each facet.
+#' For each focal facet, local triangles are formed from the focal facet centre
+#' and pairs of neighbouring facet centres. Unit normals are calculated for
+#' these triangles and oriented outward using the vector from the centroid of
+#' the eye point cloud towards the focal facet as a reference. The local triangle
+#' normals are averaged to obtain the focal estimate. The focal normal is then
+#' averaged with the normals of valid neighbouring facets to reduce local
+#' directional noise, and the resulting vector is renormalised to unit length.
+#'
+#' Facets with fewer than two valid neighbours cannot define a local surface
+#' normal and are removed. Because their removal can reduce the neighbour count
+#' of other facets, this filtering is repeated until all retained facets have
+#' at least two retained neighbours.
+#'
+#' @param df A data frame or tibble containing one row per facet. It must
+#'   contain facet identifiers (`ID`), facet-centre coordinates (`x`, `y`,
+#'   `z`), a `neighbours` column containing neighbouring facet identifiers, and
+#'   `number_of_neighbours`.
+#' @param cores Integer. Number of processor cores used for parallel normal
+#'   calculation. Default: `1`.
+#' @param plot_file Character or `NULL`. If supplied, write a PDF containing
+#'   histograms of the x, y, and z components of the calculated normals.
+#'   Default: `NULL`.
+#' @param plot_results Logical. If `TRUE`, plot histograms of the normal-vector
+#'   components to the active graphics device. Default: `FALSE`.
+#' @param verbose Logical. If `TRUE`, print progress and timing information.
+#'   Default: `FALSE`.
+#'
+#' @return A tibble with one row per retained facet and the columns `ID`,
+#'   `norm.x`, `norm.y`, and `norm.z`, describing the estimated outward facet
+#'   normal.
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' neighbours <- find_neighbours(cv3d_example_facets)
+#' facet_normals <- get_facet_normals(neighbours, cores = 1, verbose = FALSE)
+#' head(facet_normals)
 #'
 #' @export
-#' @examples
-#' xxx: add example
-#'
 get_facet_normals <- function(df,
                               cores = 1,
                               plot_file = NULL,
                               plot_results = FALSE,
-                              verbose = FALSE){
-  
-  require(parallel)
-  require(doSNOW)
-  require(progress)
-  
-  # # testing
-  # df = df_w_sizes
-  # cores = 18
-  # plot_file = gsub("_neighbour_and_size_data",
-  #                  "_normal_data", 
-  #                  plot_file)
-  # plot_results = TRUE
-  # verbose = TRUE
-  
-  # get mean coordinate of facets
-  eyes_mean <- df %>% 
-    mutate(mean_x = mean(x),
-           mean_y = mean(y),
-           mean_z = mean(z)) %>%
-    distinct(mean_x, mean_y, mean_z) 
-  # 
-  # 
-  #   plot3d(df %>%
-  #            select(x,y,z),
-  #          aspect = "iso")
-  #   text3d(df %>%
-  #            select(x,y,z),
-  #          texts = df %>%
-  #            pull(ID))
-  #   points3d(eyes_mean, size=20)
-  
-  
-  # remove neighbours that are not part of df anymore
-  # iterate until no more rows need to be deleted
-  # df_tmp <- df
-  # df <- df_tmp
-  curr_difference <- 1
-  counter <- 0
-  while(curr_difference != 0){
-    counter <- counter+1
-    # cat(counter, "\n)
-    # for(m in 1:2){
-    l=202
-    facets_to_remove <- c()
-    for(l in 1:nrow(df)){
-      curr_facet <- df$ID[l]
-      curr_neighbours <- as.numeric(str_split(df$neighbours[l], pattern = "; ")[[1]])
-      
-      neighbours_to_keep <- curr_neighbours[which(curr_neighbours %in% df$ID)]
-      neighbours_to_remove <- curr_neighbours[which(curr_neighbours %in% df$ID == FALSE)]
-      facets_to_remove <- c(facets_to_remove, neighbours_to_remove)
-      # if(length(neighbours_to_remove > 0)) cat(neighbours_to_remove,"\n")
-      
-      df$neighbours[l] <- paste(neighbours_to_keep, collapse = "; ")
-      df$number.of.neighbours[l] <- length(neighbours_to_keep)
+                              verbose = FALSE) {
+  required <- c("ID", "x", "y", "z", "neighbours", "number_of_neighbours")
+  missing_cols <- setdiff(required, names(df))
+  if (length(missing_cols) > 0) {
+    stop("Missing required column(s): ", paste(missing_cols, collapse = ", "), call. = FALSE)
+  }
+  if (!is.numeric(cores) || length(cores) != 1 || !is.finite(cores) || cores < 1) {
+    stop("cores must be a positive integer.", call. = FALSE)
+  }
+  cores <- as.integer(cores)
+
+  parse_neighbours <- function(value) {
+    if (is.na(value) || !nzchar(trimws(as.character(value)))) return(character(0))
+    out <- trimws(strsplit(as.character(value), split = ";", fixed = TRUE)[[1]])
+    out[nzchar(out)]
+  }
+
+  work <- as.data.frame(df, stringsAsFactors = FALSE)
+  work$ID <- as.character(work$ID)
+
+  repeat {
+    keep_ids <- work$ID
+    parsed <- lapply(work$neighbours, parse_neighbours)
+    parsed <- lapply(parsed, function(v) v[v %in% keep_ids])
+    work$neighbours <- vapply(parsed, paste, collapse = "; ", FUN.VALUE = character(1))
+    work$number_of_neighbours <- lengths(parsed)
+    keep <- work$number_of_neighbours >= 2
+    if (all(keep)) break
+    work <- work[keep, , drop = FALSE]
+    if (nrow(work) == 0) break
+  }
+
+  if (nrow(work) == 0) {
+    return(tibble::tibble(ID = character(), norm.x = numeric(), norm.y = numeric(), norm.z = numeric()))
+  }
+
+  eye_mean <- colMeans(as.matrix(work[, c("x", "y", "z"), drop = FALSE]))
+  ids <- work$ID
+  coords <- as.matrix(work[, c("x", "y", "z"), drop = FALSE])
+  storage.mode(coords) <- "double"
+
+  calculate_one <- function(i) {
+    focal <- coords[i, ]
+    centre_vector <- focal - eye_mean
+    centre_length <- sqrt(sum(centre_vector^2))
+    if (!is.finite(centre_length) || centre_length == 0) {
+      return(c(norm.x = NA_real_, norm.y = NA_real_, norm.z = NA_real_))
     }
-    
-    last_nrow <- nrow(df)
-    df <- df %>% 
-      filter(number.of.neighbours>=2)
-    
-    curr_nrow <- nrow(df)
-    curr_difference <- last_nrow-curr_nrow
-  }
-  
-  # calculate facet normals according to their neighbours
-  if(verbose == TRUE){
-    cat(paste0("Calculating ", nrow(df), " facet normals according to their neighbours' coordinates (multi-threaded)...\n"))
-    # cat(paste0("This may take a while, because ", nrow(df), " x ", sum(df$number.of.neighbours), " = ", nrow(df)*sum(df$number.of.neighbours), " calculations will be performed.\n"))
-  }
-  
-  cl <- makeCluster(cores)
-  registerDoSNOW(cl)
-  
-  # progress bar ------------------------------------------------------------
-  pb <- progress_bar$new(
-    format = "facet = :facet [:bar] :elapsed | eta: :eta",
-    total = nrow(df),    # 100 
-    width = 60)
-  
-  # allowing progress bar to be used in foreach -----------------------------
-  progress <- function(n){
-    pb$tick(tokens = list(facet = df$ID[n]))
-  } 
-  
-  opts <- list(progress = progress)
-  l=308
-  df_normals <- foreach(l = 1:nrow(df),# nrow(df)
-                        .combine=rbind, 
-                        .packages=c('dplyr', 'stringr', 'CV3D'), 
-                        .options.snow = opts,
-                        .errorhandling = "stop") %dopar% {
-                          
-                          # print(l)
-                          curr_facet <- df$ID[l]
-                          curr_neighbours <- str_split(df$neighbours[l], pattern = "; ")[[1]]
-                          
-                          # if(all(!is.na(curr_neighbours))){
-                          
-                          # get coordinates of current facet and neighbours
-                          coords_facet <- df %>% 
-                            filter(ID == curr_facet) %>% 
-                            select(x,y,z) %>% 
-                            unlist()
-                          
-                          # calculate normal from eye center to current facet
-                          center_vector <- coords_facet %>% unlist() - eyes_mean %>% unlist()
-                          
-                          # normalize center_vector
-                          center_vector <- center_vector / sqrt(sum(center_vector^2))
-                          # print(center_vector)
-                          
-                          
-                          # # plot vector from center of eyes to curr_facet
-                          # lines3d(x = c(eyes_mean %>% pull(mean_x), eyes_mean %>% pull(mean_x)+center_vector[1]*300),
-                          #         y = c(eyes_mean %>% pull(mean_y), eyes_mean %>% pull(mean_y)+center_vector[2]*300),
-                          #         z = c(eyes_mean %>% pull(mean_z), eyes_mean %>% pull(mean_z)+center_vector[3]*300),
-                          #         col = "red")
-                          
-                          # get distances between curr_neighbours
-                          curr_dists <- tibble(n1 = character(),
-                                               n2 = character(),
-                                               dist = numeric())
-                          n1=1
-                          n2=2
-                          for(n1 in 1:length(curr_neighbours)){
-                            for(n2 in 1:length(curr_neighbours)){
-                              curr_neighbour_1 <- curr_neighbours[n1]
-                              curr_neighbour_2 <- curr_neighbours[n2]
-                              coords_neighbour_1 <- df %>%
-                                filter(ID == curr_neighbour_1) %>%
-                                select(x,y,z) %>%
-                                unlist()
-                              coords_neighbour_2 <- df %>%
-                                filter(ID == curr_neighbour_2) %>%
-                                select(x,y,z) %>%
-                                unlist()
-                              curr_dist <- distance_3D(point1 = coords_neighbour_1,
-                                                       point2 = coords_neighbour_2,
-                                                       verbose = FALSE)
-                              
-                              curr_dists <- curr_dists %>% 
-                                add_row(n1 = curr_neighbour_1,
-                                        n2 = curr_neighbour_2,
-                                        dist = curr_dist)
-                            }
-                          }
-                          
-                          # clean list from duplicates
-                          curr_dists_clean <- curr_dists %>%
-                            filter(dist > 0) %>% 
-                            distinct(dist, .keep_all = TRUE) %>% 
-                            arrange(dist) %>%
-                            # mutate(delta_dist = dist - lag(dist, default = dist[1]))
-                            slice(1:length(curr_neighbours))
-                          
-                          # print(curr_dists_clean)
-                          
-                          
-                          # create triangle with curr_neighbor and get normal
-                          curr_normals_x <- c()
-                          curr_normals_y <- c()
-                          curr_normals_z <- c()
-                          curr_normals_angles <- c()
-                          
-                          n=1
-                          for(n in 1:nrow(curr_dists_clean)){
-                            # get neighbours for current triangle
-                            curr_neighbour_1 <- curr_dists_clean %>%
-                              slice(n) %>%
-                              pull(n1)
-                            curr_neighbour_2 <- curr_dists_clean %>%
-                              slice(n) %>%
-                              pull(n2)
-                            
-                            # print(paste0("Building triangle with facets ", curr_facet, ", ", curr_neighbour_1, " and ", curr_neighbour_2))
-                            coords_neighbour_1 <- df %>%
-                              filter(ID == curr_neighbour_1) %>%
-                              select(x,y,z) %>%
-                              unlist()
-                            coords_neighbour_2 <- df %>%
-                              filter(ID == curr_neighbour_2) %>%
-                              select(x,y,z) %>%
-                              unlist()
-                            
-                            curr_normal <- calculate_normal(A = coords_facet,
-                                                            B = coords_neighbour_1,
-                                                            C = coords_neighbour_2,
-                                                            normalize = TRUE)
-                            
-                            # # check if facet normal points in same direction as triangle normal
-                            # print(curr_normal)
-                            # print(center_vector)
-                            
-                            curr_angle <- angle_between_vectors(a = curr_normal,
-                                                                b = center_vector)
-                            # print(curr_angle)
-                            
-                            # check if normals point to same direction
-                            if(curr_angle < 0){
-                              curr_normal <- -1*curr_normal
-                            }
-                            
-                            # print(paste0("Adding normals from triangle with facets ", curr_facet, ", ", curr_neighbour_1, " and ", curr_neighbour_2))
-                            curr_normals_x <- c(curr_normals_x, curr_normal[1])
-                            curr_normals_y <- c(curr_normals_y, curr_normal[2])
-                            curr_normals_z <- c(curr_normals_z, curr_normal[3])
-                            curr_normals_angles <- c(curr_normals_angles, curr_angle)
-                          } 
-                          
-                          tmp <- tibble(ID = curr_facet,
-                                        norm.x = mean(curr_normals_x[1]), 
-                                        norm.y = mean(curr_normals_y[1]), 
-                                        norm.z = mean(curr_normals_z[1]))
-                          # print("******************************")
-                        }
-  
-  stopCluster(cl) 
-  
-  
-  # average facet angles xyz: also sizes
-  
-  
-  df_normals_avg <- tibble(ID = character(),
-                           norm.x = numeric(),
-                           norm.y = numeric(),
-                           norm.z = numeric())
-  
-  for(l in 1:nrow(df)) {
-    
-    # print(l)
-    curr_facet <- df$ID[l]
-    curr_neighbours <- str_split(df$neighbours[l], pattern = "; ")[[1]]
-    
-    curr_normal <- df_normals %>% 
-      filter(ID == curr_facet) %>% 
-      select(norm.x,norm.y,norm.z)
-    
-    curr_neighbor_normals <- df_normals %>% 
-      filter(ID %in% curr_neighbours) %>% 
-      select(norm.x,norm.y,norm.z)
-    
-    curr_normal_avg_x = mean(c(rep(curr_normal$norm.x, 1),
-                               curr_neighbor_normals$norm.x))
-    curr_normal_avg_y = mean(c(rep(curr_normal$norm.y, 1),
-                               curr_neighbor_normals$norm.y))
-    curr_normal_avg_z = mean(c(rep(curr_normal$norm.z, 1),
-                               curr_neighbor_normals$norm.z))
-    
-    df_normals_avg <- df_normals_avg %>% 
-      add_row(ID = curr_facet,
-              norm.x = curr_normal_avg_x,
-              norm.y = curr_normal_avg_y,
-              norm.z = curr_normal_avg_z)
-  }
-  
-  # replace original values
-  df_normals <- df_normals_avg
-  
-  if(plot_results == TRUE){
-    if(verbose == TRUE){
-      cat("Plotting infos to plot device...\n")
+    centre_vector <- centre_vector / centre_length
+
+    neighbour_ids <- parse_neighbours(work$neighbours[i])
+    neighbour_idx <- match(neighbour_ids, ids)
+    neighbour_idx <- neighbour_idx[!is.na(neighbour_idx)]
+    if (length(neighbour_idx) < 2) {
+      return(c(norm.x = NA_real_, norm.y = NA_real_, norm.z = NA_real_))
     }
-    par(mfrow = c(3,1))
-    hist(df_normals$norm.x, 
-         breaks = seq(min(df_normals$norm.x), max(df_normals$norm.x), 
-                      length.out=16),
-         main = "x",
-         xlab = "normals x")
-    hist(df_normals$norm.y, 
-         breaks = seq(min(df_normals$norm.y), max(df_normals$norm.y), 
-                      length.out=16),
-         main = "y",
-         xlab = "normals y")
-    hist(df_normals$norm.z, 
-         breaks = seq(min(df_normals$norm.z), max(df_normals$norm.z), 
-                      length.out=16),
-         main = "z",
-         xlab = "normals z")
-    par(mfrow = c(1,1))
-  }
-  
-  if(!is.null(plot_file)){
-    if(verbose == TRUE){
-      cat("Plotting infos to", plot_file, "\n")
+
+    # Construct each unordered neighbour pair exactly once.  The shortest
+    # neighbour-neighbour pairs approximate the polygon edges around the focal
+    # facet; equal distances must remain distinct because regular lattices
+    # legitimately contain several different pairs with the same length.
+    pair_matrix <- utils::combn(neighbour_idx, 2)
+    pairs <- data.frame(n1 = pair_matrix[1, ], n2 = pair_matrix[2, ])
+    pair_dist <- sqrt(rowSums((coords[pairs$n2, , drop = FALSE] -
+                               coords[pairs$n1, , drop = FALSE])^2))
+    valid_pairs <- is.finite(pair_dist) & pair_dist > 0
+    pairs <- pairs[valid_pairs, , drop = FALSE]
+    pair_dist <- pair_dist[valid_pairs]
+    if (length(pair_dist) == 0) {
+      return(c(norm.x = NA_real_, norm.y = NA_real_, norm.z = NA_real_))
     }
-    
-    # PDF plots
-    pdf(plot_file, # , today()
-        onefile = TRUE, paper = "a4")
-    
-    par(mfrow = c(3,1))
-    hist(df_normals$norm.x, 
-         breaks = seq(min(df_normals$norm.x), max(df_normals$norm.x), 
-                      length.out=16),
-         main = "x",
-         xlab = "normals x")
-    hist(df_normals$norm.y, 
-         breaks = seq(min(df_normals$norm.y), max(df_normals$norm.y), 
-                      length.out=16),
-         main = "y",
-         xlab = "normals y")
-    hist(df_normals$norm.z, 
-         breaks = seq(min(df_normals$norm.z), max(df_normals$norm.z), 
-                      length.out=16),
-         main = "z",
-         xlab = "normals z")
-    par(mfrow = c(1,1))
-    
-    dev.off()
+
+    order_idx <- order(pair_dist)
+    pairs <- pairs[order_idx, , drop = FALSE]
+    pairs <- pairs[seq_len(min(nrow(pairs), length(neighbour_idx))), , drop = FALSE]
+
+    local_normals <- matrix(NA_real_, nrow = nrow(pairs), ncol = 3)
+    for (j in seq_len(nrow(pairs))) {
+      curr_normal <- calculate_normal(
+        A = focal,
+        B = coords[pairs$n1[j], ],
+        C = coords[pairs$n2[j], ],
+        normalize = TRUE
+      )
+      curr_length <- sqrt(sum(curr_normal^2))
+      if (!all(is.finite(curr_normal)) || !is.finite(curr_length) || curr_length == 0) next
+      if (sum(curr_normal * centre_vector) < 0) curr_normal <- -curr_normal
+      local_normals[j, ] <- curr_normal
+    }
+
+    # Average all valid local triangle normals and renormalise the focal
+    # estimate. This gives each valid focal estimate equal weight during the
+    # subsequent neighbour smoothing, irrespective of local triangle spread.
+    valid_local <- stats::complete.cases(local_normals) & rowSums(local_normals^2) > 0
+    if (!any(valid_local)) {
+      return(c(norm.x = NA_real_, norm.y = NA_real_, norm.z = NA_real_))
+    }
+    focal_normal <- colMeans(local_normals[valid_local, , drop = FALSE])
+    focal_length <- sqrt(sum(focal_normal^2))
+    if (!all(is.finite(focal_normal)) || !is.finite(focal_length) || focal_length == 0) {
+      return(c(norm.x = NA_real_, norm.y = NA_real_, norm.z = NA_real_))
+    }
+    focal_normal / focal_length
   }
-  
-  if(verbose == TRUE){
-    cat("Normals calculated!\n")
+
+  if (verbose) message("Calculating ", nrow(work), " facet normals.")
+
+  if (cores > 1 && nrow(work) > 1) {
+    cores <- min(cores, nrow(work))
+    doParallel::registerDoParallel(cores)
+    on.exit(doParallel::stopImplicitCluster(), add = TRUE)
+    raw_list <- foreach::foreach(i = seq_len(nrow(work)), .packages = "CV3D") %dopar% {
+      calculate_one(i)
+    }
+  } else {
+    raw_list <- lapply(seq_len(nrow(work)), calculate_one)
   }
-  
-  return(df_normals)
+
+  raw_normals <- do.call(rbind, raw_list)
+  colnames(raw_normals) <- c("norm.x", "norm.y", "norm.z")
+
+  smoothed <- matrix(NA_real_, nrow = nrow(work), ncol = 3)
+  for (i in seq_len(nrow(work))) {
+    neighbour_idx <- match(parse_neighbours(work$neighbours[i]), ids)
+    neighbour_idx <- neighbour_idx[!is.na(neighbour_idx)]
+    values <- raw_normals[c(i, neighbour_idx), , drop = FALSE]
+    mean_normal <- colMeans(values, na.rm = TRUE)
+    normal_length <- sqrt(sum(mean_normal^2))
+    if (all(is.finite(mean_normal)) && is.finite(normal_length) && normal_length > 0) {
+      smoothed[i, ] <- mean_normal / normal_length
+    }
+  }
+
+  result <- tibble::tibble(
+    ID = ids,
+    norm.x = smoothed[, 1],
+    norm.y = smoothed[, 2],
+    norm.z = smoothed[, 3]
+  )
+
+  plot_histograms <- function() {
+    graphics::par(mfrow = c(3, 1))
+    on.exit(graphics::par(mfrow = c(1, 1)), add = TRUE)
+    for (component in c("norm.x", "norm.y", "norm.z")) {
+      values <- result[[component]]
+      values <- values[is.finite(values)]
+      if (length(values) > 0) {
+        graphics::hist(values, breaks = 15, main = component, xlab = component)
+      }
+    }
+  }
+
+  if (plot_results) plot_histograms()
+  if (!is.null(plot_file)) {
+    grDevices::pdf(plot_file, onefile = TRUE, paper = "a4")
+    plot_histograms()
+    grDevices::dev.off()
+  }
+
+  if (verbose) message("Facet normals calculated.")
+  result
 }
 
 
-
-#' Get optic parameter approximations
+#' Calculate Local Optical Properties of Compound-Eye Facets
 #'
-#' xxx: add description
+#' Calculates local optical-property estimates from facet sizes, facet surface
+#' normals, and neighbourhood relationships.
 #'
-#' @param df A tibble containing facet coordinates in columns `x, y, z`.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-#' @param verbose A `logical` value indicating if message printing is permitted.
-#' Default: `FALSE`.
-#' @return Returns a `tibble` containing the additional columns with info on 
-#' the Eye Parameter (P), the inter-facet angle (delta.phi) and acuity (CPD) for
-#' each facet.
+#' For each facet, the inter-facet angle is the mean angular separation between
+#' its surface normal and the surface normals of its valid immediate neighbours.
+#' The sampling lattice is then used for Snyder's lattice-dependent sampling
+#' frequency and eye parameter. For a square lattice,
+#' \eqn{v_s = 1 / (2 \Delta\phi)} and \eqn{p = D\Delta\phi}. For a hexagonal
+#' lattice, \eqn{v_s = 1 / (\sqrt{3}\Delta\phi)} and
+#' \eqn{p = D\sqrt{3}\Delta\phi/2}. Here, \eqn{D} is the smoothed facet-size
+#' estimate in micrometres and \eqn{\Delta\phi} is in radians; the resulting
+#' eye parameter is therefore expressed in µm·rad.
+#'
+#' `acuity_cpd` is calculated separately using the interommatidial-angle
+#' relationship used by Feller et al. (2020), \eqn{1 / (2\Delta\phi)}, with
+#' \eqn{\Delta\phi} expressed in degrees. Here it is a local anatomical
+#' acuity estimate for each facet based on that facet's mean immediate-neighbour
+#' inter-facet angle; it is independent of the square/hexagonal lattice option.
+#'
+#' @param df A data frame or tibble containing one row per facet. It must
+#'   contain facet identifiers (`ID`), neighbouring facet identifiers
+#'   (`neighbours`), facet surface normals (`norm.x`, `norm.y`, `norm.z`), and
+#'   smoothed facet-size estimates (`facet_size_smoothed`) in micrometres.
+#' @param lattice Character. Local sampling lattice used for Snyder's sampling
+#'   frequency and eye parameter. Either `"hexagonal"` (default) or `"square"`.
+#' @param cores Integer. Number of processor cores used for parallel
+#'   calculation. Default: `1`.
+#' @param plot_results Logical. If `TRUE`, plot diagnostic histograms of the
+#'   calculated optical properties. Default: `FALSE`.
+#' @param plot_file Character or `NULL`. If supplied, write diagnostic
+#'   histograms to a PDF file. Default: `NULL`.
+#' @param verbose Logical. If `TRUE`, print progress and timing information.
+#'   Default: `FALSE`.
+#'
+#' @return A tibble with one row per facet and the columns `ID`,
+#'   `interfacet_angle_deg`, the mean immediate-neighbour inter-facet angle in
+#'   degrees; `interfacet_angle_rad`, the same angle in radians;
+#'   `sampling_lattice`, the selected lattice; `eye_parameter`, Snyder's local
+#'   lattice-corrected eye parameter in µm·rad; `sampling_frequency_rad`,
+#'   Snyder's lattice-corrected sampling frequency in cycles per radian; and
+#'   `acuity_cpd`, the local anatomical acuity estimate in cycles per degree
+#'   calculated from interommatidial angle using the Feller et al. relationship.
+#'
+#' @references
+#' Snyder, A. W. (1977). Acuity of compound eyes: Physical limitations and
+#' design. Journal of Comparative Physiology A, 116, 161-182.
+#' \doi{10.1007/BF00605401}
+#'
+#' Snyder, A. W., Stavenga, D. G., & Laughlin, S. B. (1977). Spatial
+#' information capacity of compound eyes. Journal of Comparative Physiology A,
+#' 116, 183-207. \doi{10.1007/BF00605402}
+#'
+#' Feller, K. D., Sharkey, C. R., McDuffee-Altekruse, A., et al. (2020).
+#' Surf and turf vision: Patterns and predictors of visual acuity in compound
+#' eye evolution. Arthropod Structure & Development, 60, 101002.
+#' \doi{10.1016/j.asd.2020.101002}
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' facets <- find_neighbours(cv3d_example_facets)
+#' sizes <- calculate_facet_size(facets)
+#' facets <- merge(facets, sizes, by = "ID", all.x = TRUE, sort = FALSE)
+#' normals <- get_facet_normals(facets, cores = 1, verbose = FALSE)
+#' facets <- merge(facets, normals, by = "ID", all.x = TRUE, sort = FALSE)
+#' optics <- get_optic_properties(
+#'   facets,
+#'   lattice = "hexagonal",
+#'   cores = 1,
+#'   verbose = FALSE
+#' )
+#' head(optics)
 #'
 #' @export
-#' @examples
-#' xxx: add example
-#'
 get_optic_properties <- function(df,
+                                 lattice = c("hexagonal", "square"),
                                  cores = 1,
                                  plot_results = FALSE,
                                  plot_file = NULL,
-                                 verbose = FALSE){
-  
-  require(doParallel)
-  
-  # # testing
-  # df = df_w_normals
-  # cores = 18
-  # plot_results = plot_results
-  # plot_file = gsub("_neighbour_and_size_data",
-  #                  "_optics_parameters",
-  #                  plot_file)
-  # verbose = TRUE
-  
-  if(verbose == TRUE){
-    cat(paste0("Calculating IF angles, P, v, and CPD for ", nrow(df), " facets (multi-threaded)...\n"))
+                                 verbose = FALSE) {
+  required_cols <- c("ID", "neighbours", "norm.x", "norm.y", "norm.z", "facet_size_smoothed")
+  missing_cols <- setdiff(required_cols, names(df))
+  if (length(missing_cols) > 0) {
+    stop("Missing required column(s): ", paste(missing_cols, collapse = ", "), call. = FALSE)
   }
-  
-  
-  registerDoParallel(cores)
-  l=7188
-  dphi_Ps_CPDs <- foreach(l = 1:nrow(df), # nrow(df)
-                          .combine=rbind, .packages=c('dplyr', 'filesstrings', 'CV3D')) %dopar% {
-                            
-                            facet_no <- df$ID[l]
-                            
-                            curr_facet_coords <- df %>%
-                              filter(ID == facet_no) %>%
-                              select(x, y, z)
-                            
-                            curr_facet_normal <- df %>%
-                              filter(ID == facet_no) %>%
-                              select(norm.x, norm.y, norm.z)
-                            
-                            if(all(!is.na(curr_facet_normal))){
-                              if(all(curr_facet_normal != 0)){
-                                # get neighbouring facets without NAs
-                                curr_facet_neighbours <- str_split(df %>%
-                                                                     filter(ID==facet_no) %>%
-                                                                     pull(neighbours),
-                                                                   pattern = "; ")[[1]]
-                                
-                                if(all(!is.na(curr_facet_neighbours))){
-                                  
-                                  delta_phis.rad <- c()
-                                  delta_phis.deg <- c()
-                                  
-                                  neighbour <- curr_facet_neighbours[1]
-                                  for (neighbour in curr_facet_neighbours) {
-                                    curr_neighbour_coords <- df %>%
-                                      filter(ID == neighbour) %>%
-                                      select(x, y, z)
-                                    
-                                    curr_neighbour_normal <- df %>%
-                                      filter(ID == neighbour) %>%
-                                      select(norm.x, norm.y, norm.z)
-                                    
-                                    
-                                    curr_delta_phi.rad <- calc_delta.phi(curr_facet_normal, 
-                                                                         curr_neighbour_normal, 
-                                                                         type = "r")
-                                    if(is.na(curr_delta_phi.rad)){
-                                      curr_delta_phi.rad = data.frame(0)
-                                    }
-                                    curr_delta_phi.deg <- curr_delta_phi.rad*180/pi
-                                    
-                                    
-                                    delta_phis.rad <- c(delta_phis.rad, curr_delta_phi.rad[1,1])
-                                    delta_phis.deg <- c(delta_phis.deg, curr_delta_phi.deg[1,1])
-                                    
-                                    # print(paste0("curr. ° = ", curr_delta_phi.deg))
-                                  }
-                                  
-                                  # df$delta_phi.rad[l] <- mean(delta_phis.rad)
-                                  # df$delta_phi.deg[l] <- mean(delta_phis.deg)
-                                  
-                                  curr_P <- df$size[df$ID == as.character(facet_no)] * 
-                                    mean(delta_phis.rad)  * (sqrt(3)/2) # eye parameter Snyder 1977. Brigitte: (sqrt(3)/2) *
-                                  # sampling frequency calculated after Feller et al. 2021 as CPD. Snyder 1977 for hexagonal lattice of visual axes: 1/sqrt(3) *  mean(delta_phis.rad)
-                                  curr_CPD <- 1 / (2 * mean(delta_phis.rad))
-                                } else {
-                                  warning("No neighbor data for facet ", facet_no)
-                                  curr_P <- 0
-                                  curr_CPD <- 0
-                                }
-                              } else {
-                                warning("No neighbor data for facet ", facet_no)
-                                curr_P <- 0
-                                curr_CPD <- 0
-                              }
-                            } else{
-                              warning("No neighbor data for facet ", facet_no)
-                              curr_P <- 0
-                              curr_CPD <- 0
-                            }
-                            
-                            tmp <- rbind(tibble(ID = facet_no, 
-                                                delta_phi.rad =  mean(delta_phis.rad), 
-                                                delta_phi.deg = mean(delta_phis.deg), 
-                                                P = curr_P, CPD = curr_CPD))
-                            # df$P[l] <- curr_P
-                            # df$CPD[l] <- curr_CPD
-                          }
-  stopImplicitCluster()
-  
-  # add optic parameters to df
-  dphi_Ps_CPDs <- df %>% 
-    left_join(dphi_Ps_CPDs, 
-              by = "ID")
-  
-  if(verbose == TRUE){
-    cat("Calculating weighted mean sizes and IF angles...\n")
+  lattice <- match.arg(lattice)
+  if (!is.numeric(cores) || length(cores) != 1 || !is.finite(cores) || cores < 1) {
+    stop("cores must be a positive integer.", call. = FALSE)
   }
-  
-  # find mean IF angle for each facet
-  dphi_Ps_CPDs$mean.size <- NA
-  dphi_Ps_CPDs$mean.delta_phi.deg <- NA
-  q = 1
-  for(q in 1:nrow(dphi_Ps_CPDs)){
-    curr_facet <- dphi_Ps_CPDs$ID[q]
-    curr.neighbours <- as.numeric(
-      str_split(dphi_Ps_CPDs %>% 
-                  filter(ID==curr_facet) %>% 
-                  pull(neighbours), 
-                pattern = "; ")[[1]])
-    
-    # get number of neghbors for weighted averaging
-    no_of_neihbors <- length(curr.neighbours)
-    
-    weighting_factor <- 6 - no_of_neihbors
-    
-    # get mean of sizess with neighbours
-    dphi_Ps_CPDs$mean.size[q] <- mean(c(rep(dphi_Ps_CPDs$size[dphi_Ps_CPDs$ID == curr_facet], (weighting_factor)), 
-                                        dphi_Ps_CPDs$size[dphi_Ps_CPDs$ID %in% curr.neighbours]))
-    
-    # get mean of IF-angles with curr facet angle doubled-weighted
-    dphi_Ps_CPDs$mean.delta_phi.deg[q] <- mean(c(rep(dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID == curr_facet], (weighting_factor+2)),
-                                                 dphi_Ps_CPDs$delta_phi.deg[dphi_Ps_CPDs$ID %in% curr.neighbours]))
+  cores <- as.integer(cores)
+
+  ids <- as.character(df$ID)
+  parse_neighbours <- function(value) {
+    if (is.na(value) || !nzchar(trimws(as.character(value)))) return(character(0))
+    out <- trimws(strsplit(as.character(value), split = ";", fixed = TRUE)[[1]])
+    out[nzchar(out)]
   }
-  # exchange size with mean.size  
-  dphi_Ps_CPDs$size <- dphi_Ps_CPDs$mean.size
-  dphi_Ps_CPDs$mean.size <- NULL
-  
-  #   calculate mean.delta_phi in degrees
-  dphi_Ps_CPDs$mean.delta_phi.rad <- dphi_Ps_CPDs$mean.delta_phi.deg*pi/180
-  
-  # calculate P and CPD with average angles per facet
-  if(verbose == TRUE){
-    cat("Calculating mean P and CPD angles...\n")
-  }
-  dphi_Ps_CPDs$P.mean <- NA
-  dphi_Ps_CPDs$CPD.mean <- NA
-  dphi_Ps_CPDs$v.mean <- NA
-  f=1
-  for(f in 1:nrow(dphi_Ps_CPDs)){
-    facet = dphi_Ps_CPDs$ID[f]
-    dphi_Ps_CPDs$P.mean[dphi_Ps_CPDs$ID == facet] <- dphi_Ps_CPDs$size[dphi_Ps_CPDs$ID == facet] * 
-      dphi_Ps_CPDs$mean.delta_phi.rad[dphi_Ps_CPDs$ID == facet] * 
-      (sqrt(3)/2) # eye parameter Snyder 1977. Brigitte: (sqrt(3)/2) * 
-    dphi_Ps_CPDs$CPD.mean[dphi_Ps_CPDs$ID == facet] <- 1 / (2 * dphi_Ps_CPDs$mean.delta_phi.rad[dphi_Ps_CPDs$ID == facet]) 
-    dphi_Ps_CPDs$v.mean[dphi_Ps_CPDs$ID == facet] <- 1/(sqrt(3) * dphi_Ps_CPDs$mean.delta_phi.rad[dphi_Ps_CPDs$ID == facet]) 
-    # v = 1/(2 * delta.phi) (square lattice); v= 1/(sqrt(3) * delta.phi) (hexagonal lattice)
-    # CPD = 1/(2 * delta.phi) according to Feller Surf and Turf
-  }
-  
-  # # some corrections that are only needed for faulty eyes (so far only damselfly)
-  # dphi_Ps_CPDs$CPD.mean[which(dphi_Ps_CPDs$CPD.mean == Inf)] <- mean(dphi_Ps_CPDs$CPD.mean[which(dphi_Ps_CPDs$CPD.mean != Inf)])
-  
-  if(plot_results == TRUE){
-    if(verbose == TRUE){
-      cat("Plotting infos to plot device...\n")
+
+  calculate_one <- function(i) {
+    focal_normal <- as.numeric(df[i, c("norm.x", "norm.y", "norm.z")])
+    focal_valid <- all(is.finite(focal_normal)) && sqrt(sum(focal_normal^2)) > 0
+    angles <- numeric(0)
+
+    if (focal_valid) {
+      neighbour_ids <- parse_neighbours(df$neighbours[i])
+      neighbour_idx <- match(neighbour_ids, ids)
+      neighbour_idx <- neighbour_idx[!is.na(neighbour_idx)]
+      for (idx in neighbour_idx) {
+        neighbour_normal <- as.numeric(df[idx, c("norm.x", "norm.y", "norm.z")])
+        if (!all(is.finite(neighbour_normal)) || sqrt(sum(neighbour_normal^2)) == 0) next
+        angle <- vector_angle(focal_normal, neighbour_normal, unit = "radians")
+        if (is.finite(angle)) angles <- c(angles, angle)
+      }
     }
-    par(mfrow = c(5,1))
-    hist(dphi_Ps_CPDs$size, 
-         breaks = seq(min(dphi_Ps_CPDs$size, na.rm = TRUE), 
-                      max(dphi_Ps_CPDs$size, na.rm = TRUE), 
-                      length.out=16),
-         main = "Facet diameter",
-         xlab = "Facet diameter (um)")
-    hist(dphi_Ps_CPDs$mean.delta_phi.deg, 
-         breaks = seq(min(dphi_Ps_CPDs$mean.delta_phi.deg, na.rm = TRUE), 
-                      max(dphi_Ps_CPDs$mean.delta_phi.deg, na.rm = TRUE), 
-                      length.out=16),
-         main = "Inter-facet angles",
-         xlab = "IF-angle (°)")
-    
-    hist(dphi_Ps_CPDs$P.mean, 
-         breaks = seq(min(dphi_Ps_CPDs$P.mean, na.rm = TRUE), 
-                      max(dphi_Ps_CPDs$P.mean, na.rm = TRUE), 
-                      length.out=16),
-         main = "Eye Paraneter (P)",
-         xlab = "P")
-    hist(dphi_Ps_CPDs$v.mean, 
-         breaks = seq(min(dphi_Ps_CPDs$v.mean, na.rm = TRUE),
-                      max(dphi_Ps_CPDs$v.mean, na.rm = TRUE), 
-                      length.out=16),
-         main = "Acuity (v)",
-         xlab = "v")
-    hist(dphi_Ps_CPDs$CPD.mean, 
-         breaks = seq(min(dphi_Ps_CPDs$CPD.mean, na.rm = TRUE),
-                      max(dphi_Ps_CPDs$CPD.mean, na.rm = TRUE), 
-                      length.out=16),
-         main = "Acuity (CPD)",
-         xlab = "CPD")
-    par(mfrow = c(1,1))
+
+    if (length(angles) > 0) mean(angles) else NA_real_
   }
-  if(!is.null(plot_file)){
-    if(verbose == TRUE){
-      cat("Plotting infos to", plot_file, "\n")
+
+  if (verbose) message("Calculating inter-facet angles for ", nrow(df), " facets.")
+
+  if (cores > 1 && nrow(df) > 1) {
+    cores <- min(cores, nrow(df))
+    doParallel::registerDoParallel(cores)
+    on.exit(doParallel::stopImplicitCluster(), add = TRUE)
+    i <- NULL  # foreach iteration variable; explicit binding for R CMD check
+    angle_list <- foreach::foreach(i = seq_len(nrow(df)), .packages = "CV3D") %dopar% {
+      calculate_one(i)
     }
-    
-    # PDF plots
-    pdf(plot_file, # , today()
-        onefile = TRUE, paper = "a4")
-    
-    par(mfrow = c(2,1))
-    hist(dphi_Ps_CPDs$size, 
-         breaks = seq(min(dphi_Ps_CPDs$size, na.rm = TRUE), 
-                      max(dphi_Ps_CPDs$size, na.rm = TRUE), 
-                      length.out=16),
-         main = "Facet size",
-         xlab = "Facet size (um)")
-    hist(dphi_Ps_CPDs$mean.delta_phi.deg, 
-         breaks = seq(min(dphi_Ps_CPDs$mean.delta_phi.deg, na.rm = TRUE), 
-                      max(dphi_Ps_CPDs$mean.delta_phi.deg, na.rm = TRUE), 
-                      length.out=16),
-         main = "Inter-facet angles",
-         xlab = "IF-angle (°)")
-    
-    par(mfrow = c(3,1))
-    hist(dphi_Ps_CPDs$P.mean, 
-         breaks = seq(min(dphi_Ps_CPDs$P.mean, na.rm = TRUE), 
-                      max(dphi_Ps_CPDs$P.mean, na.rm = TRUE), 
-                      length.out=16),
-         main = "Eye Paraneter (P)",
-         xlab = "P")
-    hist(dphi_Ps_CPDs$v.mean, 
-         breaks = seq(min(dphi_Ps_CPDs$v.mean, na.rm = TRUE),
-                      max(dphi_Ps_CPDs$v.mean, na.rm = TRUE), 
-                      length.out=16),
-         main = "Acuity (v)",
-         xlab = "v")
-    hist(dphi_Ps_CPDs$CPD.mean, 
-         breaks = seq(min(dphi_Ps_CPDs$CPD.mean, na.rm = TRUE),
-                      max(dphi_Ps_CPDs$CPD.mean, na.rm = TRUE), 
-                      length.out=16),
-         main = "Acuity (CPD)",
-         xlab = "CPD")
-    par(mfrow = c(1,1))
-    
-    dev.off()
+  } else {
+    angle_list <- lapply(seq_len(nrow(df)), calculate_one)
   }
-  
-  
-  
-  if(verbose == TRUE){
-    cat("Optic parameters calcualted!\n")
+
+  interfacet_angle_rad <- as.numeric(unlist(angle_list, use.names = FALSE))
+  interfacet_angle_deg <- interfacet_angle_rad * 180 / pi
+  facet_size_smoothed <- as.numeric(df$facet_size_smoothed)
+
+  if (lattice == "hexagonal") {
+    eye_parameter <- facet_size_smoothed * interfacet_angle_rad * (sqrt(3) / 2)
+    sampling_frequency_rad <- 1 / (sqrt(3) * interfacet_angle_rad)
+  } else {
+    eye_parameter <- facet_size_smoothed * interfacet_angle_rad
+    sampling_frequency_rad <- 1 / (2 * interfacet_angle_rad)
   }
-  
-  return(dphi_Ps_CPDs %>% 
-           dplyr::select(ID, mean.delta_phi.deg, mean.delta_phi.rad, P.mean, v.mean, CPD.mean) %>% 
-           dplyr::rename(delta_phi.deg = mean.delta_phi.deg,
-                         delta_phi.rad = mean.delta_phi.rad,
-                         P = P.mean,
-                         v = v.mean,
-                         CPD = CPD.mean))
+
+  # Local anatomical acuity estimate using the interommatidial-angle
+  # relationship used by Feller et al. (2020).
+  acuity_cpd <- 1 / (2 * interfacet_angle_deg)
+
+  invalid_angle <- !is.finite(interfacet_angle_rad) | interfacet_angle_rad <= 0
+  invalid_size <- !is.finite(facet_size_smoothed) | facet_size_smoothed <= 0
+
+  eye_parameter[invalid_angle | invalid_size] <- NA_real_
+  sampling_frequency_rad[invalid_angle] <- NA_real_
+  acuity_cpd[invalid_angle] <- NA_real_
+
+  result <- tibble::tibble(
+    ID = ids,
+    interfacet_angle_deg = interfacet_angle_deg,
+    interfacet_angle_rad = interfacet_angle_rad,
+    sampling_lattice = rep(lattice, length(ids)),
+    eye_parameter = eye_parameter,
+    sampling_frequency_rad = sampling_frequency_rad,
+    acuity_cpd = acuity_cpd
+  )
+
+  plot_hist <- function(x, main, xlab) {
+    values <- x[is.finite(x)]
+    if (length(values) > 0) graphics::hist(values, breaks = 15, main = main, xlab = xlab)
+  }
+  plot_all <- function() {
+    graphics::par(mfrow = c(5, 1))
+    on.exit(graphics::par(mfrow = c(1, 1)), add = TRUE)
+    plot_hist(facet_size_smoothed, "Facet diameter", "Facet diameter")
+    plot_hist(result$interfacet_angle_deg, "Inter-facet angles", "Inter-facet angle (degrees)")
+    plot_hist(result$eye_parameter, "Eye parameter", paste0("Eye parameter (", lattice, " lattice)"))
+    plot_hist(result$sampling_frequency_rad, "Sampling frequency", "Cycles per radian")
+    plot_hist(result$acuity_cpd, "Local anatomical acuity", "Cycles per degree")
+  }
+
+  if (plot_results) plot_all()
+  if (!is.null(plot_file)) {
+    grDevices::pdf(plot_file, onefile = TRUE, paper = "a4")
+    plot_all()
+    grDevices::dev.off()
+  }
+
+  if (verbose) message("Optical properties calculated.")
+  result
 }
 
 
-
-
-#' Converts 3D coordinates to latitude and longitude
+#' Convert Cartesian Coordinates to View Angles
 #'
-#' Rotates 3D point cloud according to one defined vector so that this vector
-#' is aligned to one of the global coordinate system axes.
+#' Converts three-dimensional Cartesian coordinates to elevation and azimuth
+#' relative to a specified centre.
 #'
-#' @param df A tibble containing coordinates in columns `x, y, z`.
-#' @param line_points A 2x3 tibble containing coordinates of line to align the 
-#' point cloud to. Must contain one row per point and columns `x, y, z`.
-#' @param axis A character string defining the global axis to align to. Must be 
-#' `x`, `y`, or `z`.
-#' @return Returns a tibble with the aligned coordinates in columns `x, y, z`.
+#' Coordinates are first translated so that `center` becomes the origin.
+#' Elevation is measured from the x-y plane, with positive values towards the
+#' positive z-axis. By default, azimuth follows the CV3D anatomical convention
+#' in which the anterior viewing direction (negative y-axis after landmark
+#' alignment) is 0 degrees, the positive x-axis is +90 degrees, and the
+#' negative x-axis is -90 degrees.
+#'
+#' @param x Numeric vector of x coordinates.
+#' @param y Numeric vector of y coordinates.
+#' @param z Numeric vector of z coordinates.
+#' @param center Numeric vector of length three specifying the x, y, and z
+#'   coordinates of the angular reference centre. Default: `c(0, 0, 0)`.
+#' @param front_zero Logical. If `TRUE`, rotate azimuth by 90 degrees so that
+#'   the negative y-axis, corresponding to the anterior direction in the CV3D
+#'   global coordinate system, has azimuth 0 degrees. If `FALSE`, use the
+#'   conventional Cartesian azimuth measured from the positive x-axis.
+#'   Default: `TRUE`.
+#'
+#' @return A tibble with the columns `elevation` and `azimuth`, both in degrees.
+#'   Azimuth is wrapped to the interval from -180 degrees inclusive to +180
+#'   degrees exclusive. Coordinates located exactly at `center` return `NA`
+#'   because their angular direction is undefined.
 #'
 #' @export
 #' @examples
-#' xxx: add example and change above descsriptionand parameters
-#'
-convert_to_latlon <- function(x, y, z) {
-  # # testing
-  # x = curr_df_all %>%
-  #   pull(corn.proj.x)
-  # y = curr_df_all %>%
-  #   pull(corn.proj.y)
-  # z = curr_df_all %>%
-  #   pull(corn.proj.z)
-  
-  # Calculate the radius (should be 1 for unit sphere)
-  r <- sqrt(x^2 + y^2 + z^2)
-  
-  # Calculate latitude in radians
-  latitude <- asin(z / r)
-  
-  # Calculate longitude in radians
-  longitude <- atan2(y, x)
-  
-  # Convert latitude and longitude to degrees
-  latitude <- latitude * 180 / pi
-  longitude <- longitude * 180 / pi
-  
-  lat_lon <- tibble(latitude,
-                    longitude)
-  
-  return(lat_lon)
+#' directions <- cartesian_to_view_angles(
+#'   x = c(0, 1, 0, -1),
+#'   y = c(-1, 0, 1, 0),
+#'   z = c(0, 0, 0, 0)
+#' )
+#' directions
+cartesian_to_view_angles <- function(x,
+                                     y,
+                                     z,
+                                     center = c(0, 0, 0),
+                                     front_zero = TRUE) {
+  x <- as.numeric(x)
+  y <- as.numeric(y)
+  z <- as.numeric(z)
+  center <- as.numeric(center)
+
+  if (length(x) != length(y) || length(x) != length(z)) {
+    stop("x, y, and z must have equal lengths.", call. = FALSE)
+  }
+  if (length(center) != 3 || any(!is.finite(center))) {
+    stop("center must contain three finite numeric values.", call. = FALSE)
+  }
+  if (length(front_zero) != 1 || is.na(front_zero) || !is.logical(front_zero)) {
+    stop("front_zero must be TRUE or FALSE.", call. = FALSE)
+  }
+
+  dx <- x - center[1]
+  dy <- y - center[2]
+  dz <- z - center[3]
+  radius <- sqrt(dx^2 + dy^2 + dz^2)
+
+  elevation <- rep(NA_real_, length(radius))
+  azimuth <- rep(NA_real_, length(radius))
+  valid <- is.finite(dx) & is.finite(dy) & is.finite(dz) & is.finite(radius) & radius > 0
+
+  elevation[valid] <- asin(pmax(-1, pmin(1, dz[valid] / radius[valid]))) * 180 / pi
+  azimuth[valid] <- atan2(dy[valid], dx[valid]) * 180 / pi
+  if (front_zero) azimuth[valid] <- azimuth[valid] + 90
+  azimuth[valid] <- ((azimuth[valid] + 180) %% 360) - 180
+
+  tibble::tibble(elevation = elevation, azimuth = azimuth)
 }
 
 
-#' Calculates intersection of vector and sphere = corneal projection
+#' Calculate the Intersection of a 3D Ray and Sphere
 #'
-#' Rotates 3D point cloud according to one defined vector so that this vector
-#' is aligned to one of the global coordinate system axes.
+#' Calculates the nearest forward intersection between a ray in
+#' three-dimensional space and a sphere. The ray originates at `point` and
+#' extends in `direction`.
 #'
-#' @param df A tibble containing coordinates in columns `x, y, z`.
-#' @param line_points A 2x3 tibble containing coordinates of line to align the 
-#' point cloud to. Must contain one row per point and columns `x, y, z`.
-#' @param axis A character string defining the global axis to align to. Must be 
-#' `x`, `y`, or `z`.
-#' @return Returns a tibble with the aligned coordinates in columns `x, y, z`.
+#' In CV3D, this function is used to project facet surface normals from facet
+#' centres onto a corneal-projection sphere.
+#'
+#' @param point Numeric vector of length three containing the x, y, and z
+#'   coordinates of the ray origin.
+#' @param direction Numeric vector of length three giving the x, y, and z
+#'   components of the ray direction. The vector does not need to have unit
+#'   length.
+#' @param sphere_center Numeric vector of length three containing the x, y, and
+#'   z coordinates of the sphere centre.
+#' @param sphere_radius Numeric. Radius of the sphere. Must be greater than zero
+#'   and use the same spatial units as `point` and `sphere_center`.
+#'
+#' @return A numeric vector of length three containing the x, y, and z
+#'   coordinates of the nearest sphere intersection in the forward ray
+#'   direction. If no forward intersection exists, all three values are
+#'   `NA_real_`.
 #'
 #' @export
 #' @examples
-#' xxx: add example and change above descsriptionand parameters
-#'
-vector.sphere.intersect <- function(point, vector, sphere.c, sphere.r){
-  # expected formats:
-  # point: vector of length 3 with x, y, and z coordinates of starting point (lens)
-  # vector: vector of length 3 with vector direction in x, y, and z
-  # sphere.c: vector of length 3 with x, y, and z coordinates of center of corneal projection sphere (e.g., c(0, 2571, 975))
-  # sphere.r: single number describing radius of corneal projection sphere (e.g. 7750)
-  
-  p1.x = point[1]
-  p1.y = point[2]
-  p1.z = point[3]
-  
-  v1.x = vector[1]
-  v1.y = vector[2]
-  v1.z = vector[3]
-  
-  p2.x = p1.x + v1.x
-  p2.y = p1.y + v1.y
-  p2.z = p1.z + v1.z
-  
-  sphere.c.x = sphere.c[1]
-  sphere.c.y = sphere.c[2]
-  sphere.c.z =sphere.c[3]
-  
-  A = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
-  B = 2.0 * (p1.x * v1.x + p1.y * v1.y + p1.z * v1.z - v1.x * sphere.c.x - v1.y * sphere.c.y - v1.z * sphere.c.z);
-  C = p1.x * p1.x - 2 * p1.x * sphere.c.x + sphere.c.x * sphere.c.x + p1.y * p1.y - 2 * p1.y * sphere.c.y + sphere.c.y * sphere.c.y +
-    p1.z * p1.z - 2 * p1.z * sphere.c.z + sphere.c.z * sphere.c.z - sphere.r * sphere.r;
-  
-  # discriminant
-  D = B * B - 4 * A * C;
-  
-  t1 = ( -B - sqrt ( D ) ) / ( 2.0 * A );
-  
-  solution1 = c( p1.x * ( 1 - t1 ) + t1 * p2.x,
-                 p1.y * ( 1 - t1 ) + t1 * p2.y,
-                 p1.z * ( 1 - t1 ) + t1 * p2.z )
-  
-  t2 = ( -B + sqrt ( D ) ) / ( 2.0 * A )
-  solution2 = c( p1.x * ( 1 - t2 ) + t2 * p2.x,
-                 p1.y * ( 1 - t2 ) + t2 * p2.y,
-                 p1.z * ( 1 - t2 ) + t2 * p2.z )
-  
-  return(as_tibble(rbind(solution1, solution2)))
+#' ray_sphere_intersection(
+#'   point = c(0, 0, 0),
+#'   direction = c(1, 0, 0),
+#'   sphere_center = c(0, 0, 0),
+#'   sphere_radius = 10
+#' )
+ray_sphere_intersection <- function(point,
+                                    direction,
+                                    sphere_center,
+                                    sphere_radius) {
+  point <- as.numeric(point)
+  direction <- as.numeric(direction)
+  sphere_center <- as.numeric(sphere_center)
+  sphere_radius <- as.numeric(sphere_radius)
+
+  if (length(point) != 3 || any(!is.finite(point))) {
+    stop("point must contain three finite numeric values.", call. = FALSE)
+  }
+  if (length(direction) != 3 || any(!is.finite(direction)) || sqrt(sum(direction^2)) == 0) {
+    stop("direction must be a non-zero vector containing three finite numeric values.", call. = FALSE)
+  }
+  if (length(sphere_center) != 3 || any(!is.finite(sphere_center))) {
+    stop("sphere_center must contain three finite numeric values.", call. = FALSE)
+  }
+  if (length(sphere_radius) != 1 || !is.finite(sphere_radius) || sphere_radius <= 0) {
+    stop("sphere_radius must be a single positive finite number.", call. = FALSE)
+  }
+
+  offset <- point - sphere_center
+  A <- sum(direction^2)
+  B <- 2 * sum(offset * direction)
+  C <- sum(offset^2) - sphere_radius^2
+  discriminant <- B^2 - 4 * A * C
+
+  tolerance <- 100 * .Machine$double.eps * max(1, abs(B^2), abs(4 * A * C))
+  if (discriminant < -tolerance) {
+    return(c(x = NA_real_, y = NA_real_, z = NA_real_))
+  }
+  if (discriminant < 0) discriminant <- 0
+
+  root <- sqrt(discriminant)
+  solutions <- c((-B - root) / (2 * A), (-B + root) / (2 * A))
+  forward <- solutions[is.finite(solutions) & solutions > 0]
+  if (length(forward) == 0) {
+    return(c(x = NA_real_, y = NA_real_, z = NA_real_))
+  }
+
+  t <- min(forward)
+  result <- point + t * direction
+  stats::setNames(as.numeric(result), c("x", "y", "z"))
 }

@@ -1,45 +1,67 @@
-# compound_vision_3D
-This repository contains
-* R package CompoundVision3D to automatically extract 3D information (number of facets, facet positions, inter-facet angles, sensitivity and acuity) of compound eyes.
+# CV3D
 
-## Additional unpublished but existing code:
-### (This is part of an analysis manuscript - it is not yet decided which code will be part of the package)
-* `ImageJ macro language`
-    * crop out the left and the right eye from a CT image stacks of various sources
-    * crop out head capsule and automatically scale down for landmarking if necessary
-    * automatically generate surface STLs of compound eyes
-* `Python`
-  * extract compound eye surface from STLs in Blender
-* `R`
-  * import compound eye STL to R
-  * extract 
-  * analyse the local topological differences of facet sizes and inter-facet angles
-  * calculate field of view (FOV) on local differences of acuity and sensitivity within FOV
-  * compare these values in an phylogenetic comparative framework
-  * analyse the trade-off between acuity and sensitivity across species
+CV3D is an R package for extracting and analysing compound-eye surface geometry from three-dimensional data. It implements the R-based analysis components of the CV3D workflow.
 
-This is package is still under development.
+## What CV3D does
 
-## Example output
-### Direction and acuity
-<img src="https://live.staticflickr.com/65535/52077372779_5dafd04018_o.gif" alt="species 1" width="600"/>
+CV3D provides functions to:
 
-species 1
-
-<img src="https://live.staticflickr.com/65535/52076138677_8fb88204ae_o.gif" alt="species 2" width="600"/>
-
-species 2
+- import triangle centres and surface normals from ASCII STL meshes;
+- calculate local surface heights;
+- condense thresholded surface-height points into facet candidates;
+- identify neighbouring facets and estimate facet size;
+- estimate facet surface normals;
+- calculate local inter-facet angles, eye parameter, sampling frequency, and anatomical acuity estimates;
+- align eye data to anatomical landmarks;
+- create standardised face-on 2D or 3D eye views for visualisation and QC; and
+- project facet viewing directions onto a spherical field of view.
 
 
-### Field of view (FOV) and acuity
-![species 1](https://live.staticflickr.com/65535/52076088442_1bff87d231_o.png)
+## Spatial units
 
-species 1
+CV3D currently assumes that all input mesh and point-cloud coordinates are expressed in micrometres (µm). Facet-size estimates are therefore reported in µm, and Snyder's eye parameter in µm·rad.
 
-### Interspecific variation: Facet size, inter-facet (IF) angle and sensitivity (P)
-![species 1-11](https://live.staticflickr.com/65535/52077614450_71d1ecd3bc_o.png)
+## CV3D workflow
 
-species 1-11
+The R package can be used directly in R, but it is designed to work together with the [CV3D UI](https://github.com/Pete-s-Lab/CV3D-UI), which guides the complete workflow from 3D image data to analysis-ready compound-eye measurements.
+
+## Installation
+
+```r
+# install.packages("remotes")
+remotes::install_github("Pete-s-Lab/CV3D")
+```
+
+## Basic example
+
+```r
+data(cv3d_example_facets)
+
+facets <- find_neighbours(cv3d_example_facets)
+facet_sizes <- calculate_facet_size(facets)
+
+head(facet_sizes)
+```
+
+For standardised face-on QC and comparison plots, `view_eye_face_on()` can display centred eye clouds in base R or, when installed, `rgl`. Added comparison clouds can be positioned in units of the reference eye's width or height, for example `translate_x = 1.1`.
+
+## Documentation
+
+Individual functions are documented in R:
+
+```r
+?CV3D
+?find_neighbours
+?calculate_facet_size
+?view_eye_face_on
+```
+
+The package vignette provides a worked example of the R workflow.
+
+## Citation
+
+A formal citation for CV3D will be added following publication of the associated methods paper.
 
 ## Issues
-Please report issues and leave comments on the package's [Issues](https://github.com/Peter-T-Ruehr/CompoundVision3D/issues) page.
+
+Please report bugs and feature requests through the [GitHub issue tracker](https://github.com/Pete-s-Lab/CV3D/issues).

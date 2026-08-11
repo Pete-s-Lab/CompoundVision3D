@@ -1,31 +1,44 @@
-#' Import STL triangles (facets) as Tibble
+#' Import Triangle Centres and Normals from an ASCII STL Mesh
 #'
-#' Imports triangle centers and triangle normals of STL file as tibble. We use 
-#' the word 'triangle' here to refer to the facets of an STL mesh to avoid 
-#' confusion with the facets of compound eyes.
+#' Reads an ASCII STL mesh and extracts the centre coordinates and surface
+#' normal of each mesh triangle. One row is returned for each triangle in the
+#' STL file. CV3D assumes that STL coordinate values are expressed in
+#' micrometres (µm); the STL format itself does not encode a spatial unit.
 #'
-#' @param file_name File name of STL to import.
+#' In CV3D, the term "triangle" refers to a triangular element of the STL mesh,
+#' to distinguish these elements from the biological facets of a compound eye.
 #'
-#' @return A tibble containing triangle centers and triangle normals of STL file.
+#' @param file_name Path to an ASCII STL file.
+#' @param plot_results Logical. If `TRUE`, plot the extracted triangle centres
+#'   in an interactive 3D `rgl` window. Default: `FALSE`.
+#' @param verbose Logical. If `TRUE`, print progress information during import.
+#'   Default: `FALSE`.
+#'
+#' @return A tibble with one row per STL triangle and the columns: `ID`, a
+#'   sequential triangle identifier; `x`, `y`, and `z`, the coordinates of the
+#'   triangle centre; and `norm.x`, `norm.y`, and `norm.z`, the components of
+#'   the triangle normal.
 #'
 #' @export
-#' @importFrom doParallel registerDoParallel stopImplicitCluster
-#' @importFrom dplyr filter pull select mutate arrange slice group_by ungroup left_join summarize distinct
-#' first lead lag case_when bind_cols tibble as_tibble desc progress_estimated bind_rows all_of rename n 
-#' mutate_all
-#' @importFrom foreach foreach '%dopar%'
-#' @importFrom magrittr '%>%'
-#' @importFrom geometry dot
-#' @importFrom graphics locator par abline hist
-#' @importFrom grDevices grey.colors
-#' @importFrom readr write_csv
-#' @importFrom reshape2 melt
-#' @importFrom rgl plot3d spheres3d selectpoints3d points3d text3d
-#' @importFrom tidyr separate
-#' @importFrom stats dist hclust setNames cutree median
-#' @importFrom dplyr row_number
 #' @examples
-#' xxx: add example
+#' stl_file <- tempfile(fileext = ".stl")
+#' writeLines(
+#'   c(
+#'     "solid example",
+#'     "facet normal 0 0 1",
+#'     "outer loop",
+#'     "vertex 0 0 0",
+#'     "vertex 1 0 0",
+#'     "vertex 0 1 0",
+#'     "endloop",
+#'     "endfacet",
+#'     "endsolid example"
+#'   ),
+#'   stl_file
+#' )
+#' triangles <- STL_triangles(stl_file)
+#' triangles
+#' unlink(stl_file)
 #'
 STL_triangles <- function(file_name, 
                           plot_results = FALSE,
@@ -48,7 +61,7 @@ STL_triangles <- function(file_name,
   close(file_in)
   
   # convert character vector lines to tibble
-  lines_tbl <- as_tibble(lines)
+  lines_tbl <- tibble::as_tibble(lines)
   if(verbose == TRUE){
     cat("Converting to tibble with", nrow(lines_tbl), "lines ...\n")
   }
@@ -60,12 +73,12 @@ STL_triangles <- function(file_name,
   
   vertex_coords_triangles <- lines_tbl %>% 
     # slice(1:10) %>% 
-    filter(grepl(".*vertex", value)) %>%
-    mutate(value = gsub("^.*vertex", "vertex", value)) %>% 
-    separate(value, into = c("value", "x", "y","z"), 
+    dplyr::filter(grepl(".*vertex", value)) %>%
+    dplyr::mutate(value = gsub("^.*vertex", "vertex", value)) %>% 
+    tidyr::separate(value, into = c("value", "x", "y","z"), 
              sep = " ") %>% 
-    select(-value) %>% 
-    mutate_all(as.numeric)
+    dplyr::select(-value) %>% 
+    dplyr::mutate_all(as.numeric)
   
   # create vector of IDs (3 x same number per vertex coordinate)
   IDs <- c()
@@ -78,14 +91,14 @@ STL_triangles <- function(file_name,
     cat("Extracting coordinates of triangle centers...\n")
   }
   vertex_coords_triangle_centers <- vertex_coords_triangles %>% 
-    mutate("ID" = IDs) %>% 
-    group_by(ID) %>% 
-    mutate(x = mean(x), 
+    dplyr::mutate("ID" = IDs) %>% 
+    dplyr::group_by(ID) %>% 
+    dplyr::mutate(x = mean(x), 
            y = mean(y),
            z = mean(z)) %>% 
-    distinct(ID, .keep_all = T) %>%
-    select(ID, x, y, z) %>% 
-    arrange(ID) 
+    dplyr::distinct(ID, .keep_all = TRUE) %>%
+    dplyr::select(ID, x, y, z) %>% 
+    dplyr::arrange(ID) 
   
   # get normals of triangles
   if(verbose == TRUE){
@@ -93,16 +106,16 @@ STL_triangles <- function(file_name,
   }
   
   normals <-  lines_tbl %>% 
-    filter(grepl("facet normal", value)) %>% 
-    separate(value, into = c("value.1", "value.2", "norm.x", "norm.y", "norm.z"), sep = " ") %>% 
-    select(-c(value.1, value.2)) %>% 
-    mutate_all(as.numeric) %>% 
-    mutate(ID = row_number()) %>% 
-    select(ID, norm.x, norm.y, norm.z)
+    dplyr::filter(grepl("facet normal", value)) %>% 
+    tidyr::separate(value, into = c("value.1", "value.2", "norm.x", "norm.y", "norm.z"), sep = " ") %>% 
+    dplyr::select(-c(value.1, value.2)) %>% 
+    dplyr::mutate_all(as.numeric) %>% 
+    dplyr::mutate(ID = dplyr::row_number()) %>% 
+    dplyr::select(ID, norm.x, norm.y, norm.z)
   
   # join triangle center coordinates and their normals
-  tri_centers_normals <- left_join(vertex_coords_triangle_centers, normals, by = "ID") %>% 
-    ungroup()
+  tri_centers_normals <- dplyr::left_join(vertex_coords_triangle_centers, normals, by = "ID") %>% 
+    dplyr::ungroup()
   
   if(verbose == TRUE){
     cat("Found", nrow(tri_centers_normals), "triangle coordinates.\n")
@@ -110,8 +123,9 @@ STL_triangles <- function(file_name,
   
   if(plot_results == TRUE){
     # # plot triangle center coordinates
-    plot3d(tri_centers_normals %>%
-             select(x,y,z), 
+    if (!requireNamespace("rgl", quietly = TRUE)) stop("Package 'rgl' is required when plot_results = TRUE.", call. = FALSE)
+    rgl::plot3d(tri_centers_normals %>%
+             dplyr::select(x,y,z), 
            aspect = "iso", 
            col = "blue")
   }

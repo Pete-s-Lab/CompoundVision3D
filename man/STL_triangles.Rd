@@ -2,22 +2,53 @@
 % Please edit documentation in R/STL_to_R.R
 \name{STL_triangles}
 \alias{STL_triangles}
-\title{Import STL triangles (facets) as Tibble}
+\title{Import Triangle Centres and Normals from an ASCII STL Mesh}
 \usage{
 STL_triangles(file_name, plot_results = FALSE, verbose = FALSE)
 }
 \arguments{
-\item{file_name}{File name of STL to import.}
+\item{file_name}{Path to an ASCII STL file.}
+
+\item{plot_results}{Logical. If \code{TRUE}, plot the extracted triangle centres
+in an interactive 3D \code{rgl} window. Default: \code{FALSE}.}
+
+\item{verbose}{Logical. If \code{TRUE}, print progress information during import.
+Default: \code{FALSE}.}
 }
 \value{
-A tibble containing triangle centers and triangle normals of STL file.
+A tibble with one row per STL triangle and the columns: \code{ID}, a
+sequential triangle identifier; \code{x}, \code{y}, and \code{z}, the coordinates of the
+triangle centre; and \code{norm.x}, \code{norm.y}, and \code{norm.z}, the components of
+the triangle normal.
 }
 \description{
-Imports triangle centers and triangle normals of STL file as tibble. We use
-the word 'triangle' here to refer to the facets of an STL mesh to avoid
-confusion with the facets of compound eyes.
+Reads an ASCII STL mesh and extracts the centre coordinates and surface
+normal of each mesh triangle. One row is returned for each triangle in the
+STL file. CV3D assumes that STL coordinate values are expressed in
+micrometres (µm); the STL format itself does not encode a spatial unit.
+}
+\details{
+In CV3D, the term "triangle" refers to a triangular element of the STL mesh,
+to distinguish these elements from the biological facets of a compound eye.
 }
 \examples{
-xxx: add example
+stl_file <- tempfile(fileext = ".stl")
+writeLines(
+  c(
+    "solid example",
+    "facet normal 0 0 1",
+    "outer loop",
+    "vertex 0 0 0",
+    "vertex 1 0 0",
+    "vertex 0 1 0",
+    "endloop",
+    "endfacet",
+    "endsolid example"
+  ),
+  stl_file
+)
+triangles <- STL_triangles(stl_file)
+triangles
+unlink(stl_file)
 
 }

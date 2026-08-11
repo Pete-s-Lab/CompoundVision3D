@@ -2,56 +2,90 @@
 % Please edit documentation in R/rotations.R
 \name{align_pointcloud}
 \alias{align_pointcloud}
-\title{Align 3D Point Cloud to Global Axes}
+\title{Align a 3D Point Cloud to Anatomical Axes}
 \usage{
 align_pointcloud(
   df,
-  ref_x = "x",
-  ref_y = "y",
-  ref_z = "z",
-  data_x = "norm.x",
-  data_y = "norm.y",
-  data_z = "norm.z",
+  coord_x = "x",
+  coord_y = "y",
+  coord_z = "z",
+  vector_x = "norm.x",
+  vector_y = "norm.y",
+  vector_z = "norm.z",
   landmark_col = "ID",
-  names = list(anterior = "anterior", posterior = "posterior", left = "left", right =
-    "right"),
+  landmark_names = list(anterior = "anterior", posterior = "posterior", left = "left",
+    right = "right"),
   priority = "RL"
 )
 }
 \arguments{
-\item{df}{A tibble containing coordinates and IDs.}
+\item{df}{A data frame or tibble containing point coordinates, landmark
+identifiers, and optionally a three-dimensional vector associated with
+each point.}
 
-\item{ref_x}{The column containing x-coordinates to be rotated. Default: \code{x}.}
+\item{coord_x}{Character. Name of the x-coordinate column. Default: \code{"x"}.}
 
-\item{ref_y}{The column containing y-coordinates to be rotated. Default: \code{y}.}
+\item{coord_y}{Character. Name of the y-coordinate column. Default: \code{"y"}.}
 
-\item{ref_z}{The column containing z-coordinates to be rotated. Default: \code{z}.}
+\item{coord_z}{Character. Name of the z-coordinate column. Default: \code{"z"}.}
 
-\item{data_x}{The column containing the reference x-coordinates. Default: \code{x}.}
+\item{vector_x}{Character. Name of the x-component of the vectors to rotate.
+Default: \code{"norm.x"}.}
 
-\item{data_y}{The column containing the reference y-coordinates. Default: \code{y}.}
+\item{vector_y}{Character. Name of the y-component of the vectors to rotate.
+Default: \code{"norm.y"}.}
 
-\item{data_z}{The column containing the reference z-coordinates. Default: \code{z}.}
+\item{vector_z}{Character. Name of the z-component of the vectors to rotate.
+Default: \code{"norm.z"}.}
 
-\item{landmark_col}{The column that has to have cells following the
-vector defined in \code{names}. Default: \code{ID}.}
+\item{landmark_col}{Character. Name of the column containing landmark
+identifiers. Default: \code{"ID"}.}
 
-\item{names}{A character string defining the global axis to align to.
-. Default: \verb{anterior, posterior, left, right}.}
+\item{landmark_names}{Named list defining the values in \code{landmark_col}
+corresponding to the anterior, posterior, left, and right landmarks.
+Default: \code{list(anterior = "anterior", posterior = "posterior", left = "left", right = "right")}.}
 
-\item{priority}{A character string defining the global axis that has priority
-when aligning. Can read \code{RL} for the right-left vector or \code{AP} for the
-antrior-posterior vector. Default: \code{RL}.}
+\item{priority}{Character. Which landmark direction is preserved exactly
+during orthogonalisation. \code{"RL"} preserves the right-to-left axis and
+orthogonalises the anterior-to-posterior axis; \code{"AP"} preserves the
+anterior-to-posterior axis and orthogonalises the right-to-left axis.
+Default: \code{"RL"}.}
 }
 \value{
-Returns a tibble with the aligned coordinates in columns defined by
-\verb{x_col, y_col, z_col}.
+The input data with the coordinate and vector columns transformed
+into the global coordinate system. The returned object additionally has
+the attributes \code{rotation_matrix_rows_xyz}, \code{translation_applied},
+\code{priority}, \code{coordinate_columns}, and \code{vector_columns}.
 }
 \description{
-Rotates 3D point cloud according to two defined vectors so that these vectors
-are aligned to the global coordinate system X- and Y-axes.
+Translates and rotates a three-dimensional point cloud into a standardized
+landmark-based coordinate system defined by anterior, posterior, left, and
+right reference landmarks.
+}
+\details{
+The anterior landmark is translated to the origin. The positive x-axis is
+oriented from the right landmark towards the left landmark, and the positive
+y-axis from the anterior landmark towards the posterior landmark. Because
+these landmark directions need not be exactly perpendicular, one direction
+is preserved while the other is orthogonalised according to \code{priority}. The
+z-axis is then obtained by a cross product to produce a right-handed
+coordinate system.
+
+A second three-column vector field, normally containing facet surface
+normals, is rotated by the same transformation. Missing vector triplets are
+retained as missing values.
 }
 \examples{
-xxx: add example and change above descsriptionand parameters
+landmarks <- data.frame(
+  ID = c("anterior", "posterior", "left", "right", "facet_1"),
+  x = c(0, 0, 1, -1, 0),
+  y = c(0, 2, 1, 1, 1),
+  z = c(0, 0, 0, 0, 1),
+  norm.x = c(NA, NA, NA, NA, 0),
+  norm.y = c(NA, NA, NA, NA, 0),
+  norm.z = c(NA, NA, NA, NA, 1)
+)
+aligned <- align_pointcloud(landmarks)
+aligned[, c("ID", "x", "y", "z")]
 
 }

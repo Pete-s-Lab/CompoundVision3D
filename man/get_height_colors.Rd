@@ -2,7 +2,7 @@
 % Please edit documentation in R/local_heights.R
 \name{get_height_colors}
 \alias{get_height_colors}
-\title{Get colour values !HERE: Change description}
+\title{Map Surface Heights to Greyscale Colours}
 \usage{
 get_height_colors(
   heights,
@@ -12,20 +12,26 @@ get_height_colors(
 )
 }
 \arguments{
-\item{df}{A tibble containing triangle center coordinates in columns \verb{x, y, z}.}
+\item{heights}{Numeric vector of surface-height values.}
 
-\item{search_diam}{A numerical value defining the size of the search diameter
-of defining the local plane.}
+\item{lower_quantile}{Numeric value between \code{0} and \code{1}, or \code{NULL}. If
+supplied together with \code{upper_quantile}, values below this quantile are
+clipped to the corresponding quantile value. Default: \code{NULL}.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{upper_quantile}{Numeric value between \code{0} and \code{1}, or \code{NULL}. If
+supplied together with \code{lower_quantile}, values above this quantile are
+clipped to the corresponding quantile value. Default: \code{NULL}.}
+
+\item{verbose}{Logical. If \code{TRUE}, print progress information. Default:
+\code{FALSE}.}
 }
 \value{
-Tibble \code{df} with additional column \code{local_height}.
+A character vector of greyscale colours with the same length as
+\code{heights}.
 }
 \description{
-Calculate distance of vertices from local plane.
+Maps numeric surface-height values to a greyscale colour vector for
+visualisation. Optionally, values can be clipped at lower and upper
+quantiles before colour mapping to reduce the influence of extreme values.
 }
-\examples{
-# xxx: add example
-
-}
+\keyword{internal}

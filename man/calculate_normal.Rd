@@ -2,25 +2,31 @@
 % Please edit documentation in R/rotations.R
 \name{calculate_normal}
 \alias{calculate_normal}
-\title{Calculate normal of triangle in 3D}
+\title{Calculate the Normal Vector of a 3D Triangle}
 \usage{
 calculate_normal(A, B, C, normalize = TRUE)
 }
 \arguments{
-\item{A}{A \code{vector} with the \code{numeric} x, y, and z coordinges of point 1.}
+\item{A}{Numeric vector of length three containing the x, y, and z
+coordinates of the first point.}
 
-\item{B}{A \code{vector} with the \code{numeric} x, y, and z coordinges of point 2.}
+\item{B}{Numeric vector of length three containing the x, y, and z
+coordinates of the second point.}
 
-\item{C}{A \code{vector} with the \code{numeric} x, y, and z coordinges of point 3.}
+\item{C}{Numeric vector of length three containing the x, y, and z
+coordinates of the third point.}
+
+\item{normalize}{Logical. If \code{TRUE}, return a unit normal vector. If
+\code{FALSE}, return the unscaled cross product. Default: \code{TRUE}.}
 }
 \value{
-Returns a \code{vector} with three \code{numeric} data points describing the
-normal vector of the triangle.
+A numeric vector of length three containing the x, y, and z
+components of the triangle normal. If the three points are collinear, a
+zero vector is returned.
 }
 \description{
-xxx: add description
+Calculates a vector perpendicular to the plane defined by three points in
+three-dimensional space using the cross product of the vectors from \code{A} to
+\code{B} and from \code{A} to \code{C}.
 }
-\examples{
-xxx: add example
-
-}
+\keyword{internal}

@@ -2,7 +2,7 @@
 % Please edit documentation in R/calculations.R
 \name{find_neighbours}
 \alias{find_neighbours}
-\title{Find facet neighbours and Calculate facet sizes}
+\title{Identify Neighbouring Facets}
 \usage{
 find_neighbours(
   df,
@@ -13,29 +13,71 @@ find_neighbours(
   center = TRUE,
   k_local = 6,
   knn_search = 20,
-  edge_tol = 0.35,
-  max_neighbours = 6,
-  color_option = "D"
+  edge_tol = 0.5,
+  min_neighbours = 3,
+  max_neighbours = 6
 )
 }
 \arguments{
-\item{df}{A \code{tibble} containing facet coordinates in columns \verb{x, y, z}.}
+\item{df}{A data frame or tibble containing one row per facet.}
 
-\item{facet_size}{A \code{numeric} value containing the estimated facet size.}
+\item{x}{Character. Name of the column containing x coordinates. Default:
+\code{"x"}.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{y}{Character. Name of the column containing y coordinates. Default:
+\code{"y"}.}
 
-\item{verbose}{A \code{logical} value indicating if message printing is permitted.
-Default: \code{FALSE}.}
+\item{z}{Character. Name of the column containing z coordinates. Default:
+\code{"z"}.}
+
+\item{id}{Character. Name of the column containing unique facet identifiers.
+Default: \code{"ID"}.}
+
+\item{center}{Logical. If \code{TRUE}, centre the point cloud on its coordinate
+centroid before projecting points onto the unit sphere. Default: \code{TRUE}.}
+
+\item{k_local}{Integer. Number of nearest angular neighbours used to
+estimate the local facet spacing. Default: \code{6}.}
+
+\item{knn_search}{Integer. Number of nearest angular neighbours retained as
+candidates for supplementing facets with too few triangulation
+neighbours. Default: \code{20}.}
+
+\item{edge_tol}{Numeric. Relative tolerance for retaining triangulation
+edges. An edge is retained when its angular length does not exceed
+\code{(1 + edge_tol)} times the larger local-spacing estimate of its two
+endpoints. Default: \code{0.5}.}
+
+\item{min_neighbours}{Integer. Minimum number of neighbours targeted by
+the nearest-neighbour fallback for sparse facets. Default: \code{3}.}
+
+\item{max_neighbours}{Integer or \code{NULL}. Maximum number of reciprocal
+neighbours retained for each facet. If \code{NULL}, no maximum is applied.
+Default: \code{6}.}
 }
 \value{
-Returns a \code{tibble} containing the additional columns with info on
-facet size, facet neighbours and the number of neighbours of each facet.
+The input data with two additional columns: \code{neighbours}, containing
+the IDs of neighbouring facets separated by \code{"; "}, and
+\code{number_of_neighbours}, containing the number of neighbours assigned to
+each facet. Neighbour relationships are reciprocal: if facet A lists facet
+B, facet B also lists facet A.
 }
 \description{
-xxx: add description
+Identifies likely neighbouring facets from their three-dimensional
+positions. Facet coordinates are projected onto a unit sphere, so
+neighbourhood relationships are evaluated by angular rather than Cartesian
+distance.
+}
+\details{
+Candidate neighbour links are obtained from a convex-hull triangulation of
+the normalized facet positions. Links that are long relative to the local
+angular facet spacing are removed. Facets with too few remaining neighbours
+are supplemented with their nearest angular neighbours, and the number of
+neighbours can optionally be limited.
 }
 \examples{
-xxx: add example
+data(cv3d_example_facets)
+neighbours <- find_neighbours(cv3d_example_facets)
+head(neighbours[, c("ID", "neighbours", "number_of_neighbours")])
 
 }

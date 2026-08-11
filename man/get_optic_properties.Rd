@@ -2,10 +2,11 @@
 % Please edit documentation in R/calculations.R
 \name{get_optic_properties}
 \alias{get_optic_properties}
-\title{Get optic parameter approximations}
+\title{Calculate Local Optical Properties of Compound-Eye Facets}
 \usage{
 get_optic_properties(
   df,
+  lattice = c("hexagonal", "square"),
   cores = 1,
   plot_results = FALSE,
   plot_file = NULL,
@@ -13,22 +14,84 @@ get_optic_properties(
 )
 }
 \arguments{
-\item{df}{A tibble containing facet coordinates in columns \verb{x, y, z}.}
+\item{df}{A data frame or tibble containing one row per facet. It must
+contain facet identifiers (\code{ID}), neighbouring facet identifiers
+(\code{neighbours}), facet surface normals (\code{norm.x}, \code{norm.y}, \code{norm.z}), and
+smoothed facet-size estimates (\code{facet_size_smoothed}) in micrometres.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{lattice}{Character. Local sampling lattice used for Snyder's sampling
+frequency and eye parameter. Either \code{"hexagonal"} (default) or \code{"square"}.}
 
-\item{verbose}{A \code{logical} value indicating if message printing is permitted.
+\item{cores}{Integer. Number of processor cores used for parallel
+calculation. Default: \code{1}.}
+
+\item{plot_results}{Logical. If \code{TRUE}, plot diagnostic histograms of the
+calculated optical properties. Default: \code{FALSE}.}
+
+\item{plot_file}{Character or \code{NULL}. If supplied, write diagnostic
+histograms to a PDF file. Default: \code{NULL}.}
+
+\item{verbose}{Logical. If \code{TRUE}, print progress and timing information.
 Default: \code{FALSE}.}
 }
 \value{
-Returns a \code{tibble} containing the additional columns with info on
-the Eye Parameter (P), the inter-facet angle (delta.phi) and acuity (CPD) for
-each facet.
+A tibble with one row per facet and the columns \code{ID},
+\code{interfacet_angle_deg}, the mean immediate-neighbour inter-facet angle in
+degrees; \code{interfacet_angle_rad}, the same angle in radians;
+\code{sampling_lattice}, the selected lattice; \code{eye_parameter}, Snyder's local
+lattice-corrected eye parameter in µm·rad; \code{sampling_frequency_rad},
+Snyder's lattice-corrected sampling frequency in cycles per radian; and
+\code{acuity_cpd}, the local anatomical acuity estimate in cycles per degree
+calculated from interommatidial angle using the Feller et al. relationship.
 }
 \description{
-xxx: add description
+Calculates local optical-property estimates from facet sizes, facet surface
+normals, and neighbourhood relationships.
+}
+\details{
+For each facet, the inter-facet angle is the mean angular separation between
+its surface normal and the surface normals of its valid immediate neighbours.
+The sampling lattice is then used for Snyder's lattice-dependent sampling
+frequency and eye parameter. For a square lattice,
+\eqn{v_s = 1 / (2 \Delta\phi)} and \eqn{p = D\Delta\phi}. For a hexagonal
+lattice, \eqn{v_s = 1 / (\sqrt{3}\Delta\phi)} and
+\eqn{p = D\sqrt{3}\Delta\phi/2}. Here, \eqn{D} is the smoothed facet-size
+estimate in micrometres and \eqn{\Delta\phi} is in radians; the resulting
+eye parameter is therefore expressed in µm·rad.
+
+\code{acuity_cpd} is calculated separately using the interommatidial-angle
+relationship used by Feller et al. (2020), \eqn{1 / (2\Delta\phi)}, with
+\eqn{\Delta\phi} expressed in degrees. Here it is a local anatomical
+acuity estimate for each facet based on that facet's mean immediate-neighbour
+inter-facet angle; it is independent of the square/hexagonal lattice option.
 }
 \examples{
-xxx: add example
+data(cv3d_example_facets)
+facets <- find_neighbours(cv3d_example_facets)
+sizes <- calculate_facet_size(facets)
+facets <- merge(facets, sizes, by = "ID", all.x = TRUE, sort = FALSE)
+normals <- get_facet_normals(facets, cores = 1, verbose = FALSE)
+facets <- merge(facets, normals, by = "ID", all.x = TRUE, sort = FALSE)
+optics <- get_optic_properties(
+  facets,
+  lattice = "hexagonal",
+  cores = 1,
+  verbose = FALSE
+)
+head(optics)
 
+}
+\references{
+Snyder, A. W. (1977). Acuity of compound eyes: Physical limitations and
+design. Journal of Comparative Physiology A, 116, 161-182.
+\doi{10.1007/BF00605401}
+
+Snyder, A. W., Stavenga, D. G., & Laughlin, S. B. (1977). Spatial
+information capacity of compound eyes. Journal of Comparative Physiology A,
+116, 183-207. \doi{10.1007/BF00605402}
+
+Feller, K. D., Sharkey, C. R., McDuffee-Altekruse, A., et al. (2020).
+Surf and turf vision: Patterns and predictors of visual acuity in compound
+eye evolution. Arthropod Structure & Development, 60, 101002.
+\doi{10.1016/j.asd.2020.101002}
 }

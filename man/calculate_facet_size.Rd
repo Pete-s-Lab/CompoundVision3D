@@ -2,7 +2,7 @@
 % Please edit documentation in R/calculations.R
 \name{calculate_facet_size}
 \alias{calculate_facet_size}
-\title{Calculate facet sizes according to their neighbours}
+\title{Estimate Facet Size from Neighbour Centre Spacing}
 \usage{
 calculate_facet_size(
   df,
@@ -16,20 +16,57 @@ calculate_facet_size(
 )
 }
 \arguments{
-\item{df}{A tibble containing facet coordinates in columns \verb{x, y, z}.}
+\item{df}{A data frame or tibble containing facet identifiers,
+three-dimensional facet-centre coordinates, and a column listing the
+neighbouring facet identifiers.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{id_col}{Character. Name of the column containing unique facet
+identifiers. Default: \code{"ID"}.}
 
-\item{verbose}{A \code{logical} value indicating if message printing is permitted.
-Default: \code{FALSE}.}
+\item{x_col}{Character. Name of the column containing x coordinates.
+Default: \code{"x"}.}
+
+\item{y_col}{Character. Name of the column containing y coordinates.
+Default: \code{"y"}.}
+
+\item{z_col}{Character. Name of the column containing z coordinates.
+Default: \code{"z"}.}
+
+\item{neighbours_col}{Character. Name of the column containing neighbouring
+facet identifiers. Default: \code{"neighbours"}.}
+
+\item{sep}{Character. Separator used between facet identifiers in
+\code{neighbours_col}. Default: \code{";"}.}
+
+\item{keep_distances}{Logical. If \code{TRUE}, return both the facet-size summary
+and the individual focal-to-neighbour distances. If \code{FALSE}, return only
+the summary. Default: \code{FALSE}.}
 }
 \value{
-Returns a \code{tibble} containing the additional columns with info on
-facet normals in x, y, and z direction for each facet.
+If \code{keep_distances = FALSE}, a data frame containing \code{ID},
+\code{facet_size}, the mean Euclidean centre spacing to neighbouring facets in
+micrometres; \code{n_neighbours_used}, the number of valid neighbour distances
+used; and \code{facet_size_smoothed}, a locally smoothed estimate giving equal
+weight to the focal estimate and the mean estimate of its neighbours. If
+\code{keep_distances = TRUE}, a list with \code{summary} and \code{distances}.
 }
 \description{
-xxx: add description
+Estimates local facet size from the three-dimensional centre-to-centre
+spacing between neighbouring facets. CV3D currently assumes all coordinate
+columns are expressed in micrometres (µm).
+}
+\details{
+For each facet, the mean Euclidean centre-to-centre distance to all available
+neighbours is used as the initial facet-size estimate. This is a geometric
+proxy for local facet diameter rather than a direct measurement of the facet
+boundary. A spatially smoothed
+estimate is additionally calculated by giving equal weight to the focal
+facet's estimate and the mean size estimate of its neighbouring facets.
 }
 \examples{
-xxx: add example
+data(cv3d_example_facets)
+neighbours <- find_neighbours(cv3d_example_facets)
+facet_sizes <- calculate_facet_size(neighbours)
+head(facet_sizes)
+
 }

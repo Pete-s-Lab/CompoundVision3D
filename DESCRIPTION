@@ -1,6 +1,11 @@
 Package: CV3D
-Title: Three-dimensional Compound Eye Analysis
-Description: xxx.
+Title: Three-Dimensional Analysis of Compound-Eye Surface Geometry
+Description: Tools for extracting and analysing compound-eye geometry from
+    three-dimensional surface meshes. The workflow quantifies local surface
+    height, identifies facet centres, estimates facet neighbourhoods and facet
+    sizes, calculates facet surface normals and local optical properties,
+    aligns eye data to anatomical landmarks, and projects viewing directions
+    onto a spherical field of view.
 Version: 0.1.0
 License: MIT + file LICENSE
 URL: https://github.com/Pete-s-Lab/CV3D
@@ -9,38 +14,27 @@ Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
-Imports: 
-  doParallel,
-  doSNOW,
-  dplyr,
-  filesstrings,
-  forceR,
-  foreach,
-  geometry,
-  grDevices,
-  knitr,
-  magrittr,
-  parallel,
-  progress,
-  RANN,
-  readr,
-  reshape2,
-  rgl,
-  stats,
-  stringr,
-  tidyr,
-  viridisLite
-Depends: 
+Imports:
+    doParallel,
+    dplyr,
+    foreach,
+    geometry,
+    magrittr,
+    RANN,
+    tibble,
+    tidyr
+Depends:
     R (>= 4.0)
 VignetteBuilder: knitr
-Suggests: 
+Suggests:
+    knitr,
+    rgl,
     rmarkdown,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-Authors@R: 
-    c(person(given = "Peter T.", 
-              family = "Rühr", 
-              email = "peter.ruehr@gmail.com",
-              role = c("aut", "cre"),
-              comment = c(ORCID = "0000-0003-2776-6172")))
-Maintainer: Peter T. Rühr <peter.ruehr@gmail.com>
+Authors@R:
+    c(person(given = "Peter T.",
+             family = "Rühr",
+             email = "peter.ruehr@gmail.com",
+             role = c("aut", "cre"),
+             comment = c(ORCID = "0000-0003-2776-6172")))

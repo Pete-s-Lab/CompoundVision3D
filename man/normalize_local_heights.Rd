@@ -2,33 +2,82 @@
 % Please edit documentation in R/local_heights.R
 \name{normalize_local_heights}
 \alias{normalize_local_heights}
-\title{Noramlize Local Vertex Heights}
+\title{Normalize Local Surface Heights}
 \usage{
 normalize_local_heights(
   df,
-  normalize_diam,
+  neighbourhood_radius,
   column_to_normalize = "local_height",
-  cores = 12,
+  lower_quantile = 0.1,
+  upper_quantile = 0.9,
+  cores = 1,
   plot_file = NULL,
-  plot_results = TRUE,
+  plot_results = FALSE,
   verbose = FALSE
 )
 }
 \arguments{
-\item{df}{A tibble containing triangle center coordinates in columns \verb{x, y, z}.}
+\item{df}{A data frame or tibble containing triangle-centre coordinates
+(\code{x}, \code{y}, \code{z}) and the numeric column to be normalized.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{neighbourhood_radius}{Numeric. Radius, in micrometres (µm), of the
+spherical Euclidean neighbourhood used for local normalization. CV3D
+currently assumes all input coordinates are expressed in micrometres.}
 
-\item{search_diam}{A numerical value defining the size of the search diameter
-of defining the local plane.}
+\item{column_to_normalize}{Character. Name of the numeric column to
+normalize. Default: \code{"local_height"}.}
+
+\item{lower_quantile}{Numeric. Lower local quantile used for clipping before
+0--1 rescaling. Default: \code{0.10}.}
+
+\item{upper_quantile}{Numeric. Upper local quantile used for clipping before
+0--1 rescaling. Default: \code{0.90}.}
+
+\item{cores}{Integer. Number of processor cores used for parallel
+calculation. Default: \code{1}.}
+
+\item{plot_file}{Character or \code{NULL}. If supplied, write diagnostic
+visualizations of the original and normalized local-height values.
+Default: \code{NULL}.}
+
+\item{plot_results}{Logical. If \code{TRUE} and \code{plot_file} is supplied, keep the
+interactive \code{rgl} visualization open after saving the diagnostic image.
+Default: \code{FALSE}.}
+
+\item{verbose}{Logical. If \code{TRUE}, print progress and timing information.
+Default: \code{FALSE}.}
 }
 \value{
-Tibble \code{df} with additional column \code{local_height}.
+The input data with additional normalization columns, including
+\code{local_height_norm}, containing locally normalized values between 0 and 1;
+\code{local_height_norm_col}, its greyscale colour representation;
+\code{local_height_norm_contrast}, a base-10 peak-enhancing transform rescaled
+to 0--1; and \code{local_height_norm_contrast_col}, its colour representation.
 }
 \description{
-xxx: update! Calculate distance of vertices from local plane.
+Normalizes local surface-height values relative to their spatial
+neighbourhood. For each triangle centre, values within a spherical
+Euclidean neighbourhood are clipped to configurable lower and upper
+quantiles (10th and 90th percentiles by default) and rescaled to the range
+from 0 to 1. Because neighbourhoods overlap, each
+triangle can receive normalized values from multiple neighbourhoods. The
+final normalized value of each triangle is the mean of these values.
+}
+\details{
+This optional normalization can reduce spatial variation in local-height
+magnitude across a compound-eye surface before facet-candidate detection.
 }
 \examples{
-# xxx: add example
+surface <- expand.grid(x = -1:1, y = -1:1)
+surface$z <- 0
+surface$local_height <- seq_len(nrow(surface))
+normalized <- normalize_local_heights(
+  surface,
+  neighbourhood_radius = 1.5,
+  cores = 1,
+  plot_results = FALSE,
+  verbose = FALSE
+)
+normalized[, c("x", "y", "z", "local_height_norm")]
 
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/calculations.R
 \name{get_facet_normals}
 \alias{get_facet_normals}
-\title{Calculate facet normals according to their spacial positions}
+\title{Estimate Facet Surface Normals}
 \usage{
 get_facet_normals(
   df,
@@ -13,21 +13,52 @@ get_facet_normals(
 )
 }
 \arguments{
-\item{df}{A tibble containing facet coordinates in columns \verb{x, y, z}.}
+\item{df}{A data frame or tibble containing one row per facet. It must
+contain facet identifiers (\code{ID}), facet-centre coordinates (\code{x}, \code{y},
+\code{z}), a \code{neighbours} column containing neighbouring facet identifiers, and
+\code{number_of_neighbours}.}
 
-\item{cores}{A numerical value of how many cores to use. Default: \code{1}.}
+\item{cores}{Integer. Number of processor cores used for parallel normal
+calculation. Default: \code{1}.}
 
-\item{verbose}{A \code{logical} value indicating if message printing is permitted.
+\item{plot_file}{Character or \code{NULL}. If supplied, write a PDF containing
+histograms of the x, y, and z components of the calculated normals.
+Default: \code{NULL}.}
+
+\item{plot_results}{Logical. If \code{TRUE}, plot histograms of the normal-vector
+components to the active graphics device. Default: \code{FALSE}.}
+
+\item{verbose}{Logical. If \code{TRUE}, print progress and timing information.
 Default: \code{FALSE}.}
 }
 \value{
-Returns a \code{tibble} containing the additional columns with info on
-facet normals in x, y, and z direction for each facet.
+A tibble with one row per retained facet and the columns \code{ID},
+\code{norm.x}, \code{norm.y}, and \code{norm.z}, describing the estimated outward facet
+normal.
 }
 \description{
-xxx: add description
+Estimates an outward-pointing surface normal for each compound-eye facet
+from the three-dimensional positions of the focal facet and its neighbouring
+facets.
+}
+\details{
+For each focal facet, local triangles are formed from the focal facet centre
+and pairs of neighbouring facet centres. Unit normals are calculated for
+these triangles and oriented outward using the vector from the centroid of
+the eye point cloud towards the focal facet as a reference. The local triangle
+normals are averaged to obtain the focal estimate. The focal normal is then
+averaged with the normals of valid neighbouring facets to reduce local
+directional noise, and the resulting vector is renormalised to unit length.
+
+Facets with fewer than two valid neighbours cannot define a local surface
+normal and are removed. Because their removal can reduce the neighbour count
+of other facets, this filtering is repeated until all retained facets have
+at least two retained neighbours.
 }
 \examples{
-xxx: add example
+data(cv3d_example_facets)
+neighbours <- find_neighbours(cv3d_example_facets)
+facet_normals <- get_facet_normals(neighbours, cores = 1, verbose = FALSE)
+head(facet_normals)
 
 }

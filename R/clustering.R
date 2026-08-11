@@ -1,67 +1,101 @@
 
 
 
-#' Condense thresholded local-height points into facet candidate modes
+#' Condense Local-Height Points into Facet Candidates
 #'
-#' This function performs a local mode-condensation step on a thresholded
-#' local-height point cloud. Each point repeatedly moves toward the
-#' height-weighted centre of neighbouring points within a local search radius.
-#' After convergence, points that ended close together are merged into one
-#' candidate group. For each group, the returned facet candidate is the
-#' original input point closest to the converged group mode, not an artificial
-#' centroid.
+#' Identifies facet candidates from a thresholded local-height point cloud
+#' using iterative, height-weighted spatial condensation. At each iteration,
+#' every point moves towards the height-weighted centre of neighbouring points
+#' within a spherical Euclidean neighbourhood. Iteration continues until the
+#' maximum displacement falls below a specified tolerance or the maximum
+#' number of iterations is reached.
 #'
-#' This is intended as a pre-clustering or alternative candidate-detection step
-#' after local-height thresholding. It avoids a full pairwise distance matrix
-#' and is therefore more suitable for thresholded point clouds containing many
-#' thousands of points.
+#' After condensation, converged points are grouped by complete-linkage
+#' clustering. A retained group therefore has a maximum pairwise separation
+#' no greater than `merge_radius`. Groups containing fewer than
+#' `min_cluster_size` input points are discarded.
+#'
+#' For each retained group, the facet candidate is selected from the original
+#' input points rather than from an interpolated centroid. By default, the
+#' original point nearest the converged weighted mode is selected;
+#' alternatively, the point with the greatest local-height value can be used.
 #'
 #' @param df A data frame containing thresholded local-height points.
-#' @param coord_cols Character vector of length 3 giving the coordinate columns.
-#'   Defaults to `c("x", "y", "z")`.
-#' @param height_col Name of the height/value column used for weighting. For
-#'   03B output this is usually `"height_value"`.
-#' @param neighbour_radius Radius within which points influence each other
-#'   during convergence. Must be in the same units as `x`, `y`, and `z`.
-#' @param merge_radius Radius used to merge converged points into final candidate
-#'   groups. Defaults to `neighbour_radius / 2`.
-#' @param weight_exponent Exponent applied to positive height weights. Higher
-#'   values make high local-height points pull more strongly. Defaults to `1`.
-#' @param max_iterations Maximum number of condensation iterations. Defaults to
-#'   `10`.
-#' @param step_size Fraction of the shift toward the local weighted centre used
-#'   per iteration. Use values below `1` for more damped convergence. Defaults
-#'   to `1`.
-#' @param tolerance Stop early when the maximum point displacement in an
-#'   iteration falls below this value. Defaults to `neighbour_radius * 1e-3`.
-#' @param min_cluster_size Minimum number of original points required for a
-#'   converged group to be retained as a facet candidate. Defaults to `1`.
-#' @param select_point How to choose the actual returned candidate point within
-#'   each converged group. `"nearest_mode"` chooses the original point closest
-#'   to the converged group mode. `"max_height"` chooses the highest point in
-#'   the group. Defaults to `"nearest_mode"`.
-#' @param cores Number of CPU cores used for the independent per-point
-#'   condensation updates. The merging step remains sequential. Defaults to `1`.
+#' @param coord_cols Character vector of length three giving the coordinate
+#'   column names. Default: `c("x", "y", "z")`.
+#' @param height_col Character. Name of the local-height column used to weight
+#'   the condensation. Default: `"height_value"`.
+#' @param neighbour_radius Numeric. Radius of the spherical neighbourhood
+#'   within which points influence each other during condensation. Must use
+#'   the same spatial units as the coordinate columns.
+#' @param merge_radius Numeric. Maximum permitted pairwise Euclidean
+#'   separation within a final candidate group. Final groups are obtained by
+#'   complete-linkage clustering of the converged positions. Default:
+#'   `neighbour_radius * 0.6`.
+#' @param weight_exponent Numeric, greater than or equal to zero. Exponent
+#'   applied to the local-height weights. Non-negative height values are used
+#'   directly; values are shifted only when negative heights are present. Larger
+#'   values give greater influence to points with high local surface heights.
+#'   Default: `2`.
+#' @param max_iterations Integer. Maximum number of condensation iterations.
+#'   Default: `8`.
+#' @param step_size Numeric in the interval `(0, 1]`. Fraction of the
+#'   displacement towards the local weighted centre applied during each
+#'   iteration. Values below `1` damp the movement. Default: `0.7`.
+#' @param tolerance Numeric. Stop iterating when the maximum displacement of
+#'   any point during an iteration is less than or equal to this value.
+#'   Default: `neighbour_radius * 1e-3`.
+#' @param min_cluster_size Integer. Minimum number of original input points
+#'   required for a condensed group to be retained as a facet candidate.
+#'   Default: `3`.
+#' @param select_point Character. Method used to choose the returned candidate
+#'   from the original points belonging to each group. `"nearest_mode"`
+#'   selects the original point nearest the converged weighted mode;
+#'   `"max_height"` selects the point with the greatest local-height value.
+#'   Default: `"nearest_mode"`.
+#' @param cores Integer. Number of processor cores used for the independent
+#'   point-condensation updates. Final grouping is sequential. Default: `1`.
 #' @param return_details Logical. If `FALSE`, return only the facet-candidate
-#'   data frame. If `TRUE`, return a list with candidates, membership, converged
-#'   coordinates, and parameter metadata.
-#' @param verbose Logical. If `TRUE`, print progress messages.
+#'   data frame. If `TRUE`, additionally return point membership, converged
+#'   coordinates, and algorithm parameters. Default: `FALSE`.
+#' @param verbose Logical. If `TRUE`, print progress information. Default:
+#'   `FALSE`.
 #'
-#' @return If `return_details = FALSE`, a data frame with one row per facet
-#'   candidate. If `return_details = TRUE`, a list containing candidates,
-#'   membership, and parameter metadata.
+#' @return If `return_details = FALSE`, a data frame with one row per retained
+#'   facet candidate. Candidate coordinates (`x`, `y`, `z`) correspond to an
+#'   original input point. Additional columns report cluster size, selected and
+#'   summary height values, converged mode and original centroid coordinates,
+#'   the selected source index, and algorithm parameters. If
+#'   `return_details = TRUE`, a list with `candidates`, `membership`, and
+#'   `parameters`.
 #'
 #' @export
+#' @examples
+#' points <- data.frame(
+#'   x = c(-0.2, 0, 0.2, 0, 0, 9.8, 10, 10.2, 10, 10),
+#'   y = c(0, 0, 0, -0.2, 0.2, 0, 0, 0, -0.2, 0.2),
+#'   z = 0,
+#'   height_value = c(1, 4, 1, 2, 2, 1, 5, 1, 2, 2)
+#' )
+#' candidates <- find_facet_candidates_condensed(
+#'   points,
+#'   neighbour_radius = 0.5,
+#'   merge_radius = 0.3,
+#'   cores = 1,
+#'   verbose = FALSE
+#' )
+#' candidates
+#'
 find_facet_candidates_condensed <- function(df,
                                             coord_cols = c("x", "y", "z"),
                                             height_col = "height_value",
                                             neighbour_radius,
-                                            merge_radius = neighbour_radius / 2,
-                                            weight_exponent = 1,
-                                            max_iterations = 10,
-                                            step_size = 1,
+                                            merge_radius = neighbour_radius * 0.6,
+                                            weight_exponent = 2,
+                                            max_iterations = 8,
+                                            step_size = 0.7,
                                             tolerance = neighbour_radius * 1e-3,
-                                            min_cluster_size = 1,
+                                            min_cluster_size = 3,
                                             select_point = c("nearest_mode", "max_height"),
                                             cores = 1,
                                             return_details = FALSE,
@@ -107,6 +141,23 @@ find_facet_candidates_condensed <- function(df,
     stop("step_size must be in the interval (0, 1].", call. = FALSE)
   }
 
+  if (!is.numeric(max_iterations) || length(max_iterations) != 1 ||
+      !is.finite(max_iterations) || max_iterations < 1 ||
+      max_iterations != as.integer(max_iterations)) {
+    stop("max_iterations must be a positive integer.", call. = FALSE)
+  }
+
+  if (!is.numeric(tolerance) || length(tolerance) != 1 ||
+      !is.finite(tolerance) || tolerance < 0) {
+    stop("tolerance must be a finite number greater than or equal to zero.", call. = FALSE)
+  }
+
+  if (!is.numeric(min_cluster_size) || length(min_cluster_size) != 1 ||
+      !is.finite(min_cluster_size) || min_cluster_size < 1 ||
+      min_cluster_size != as.integer(min_cluster_size)) {
+    stop("min_cluster_size must be a positive integer.", call. = FALSE)
+  }
+
   if (!is.numeric(cores) || length(cores) != 1 ||
       !is.finite(cores) || cores < 1) {
     stop("cores must be a single positive finite number.", call. = FALSE)
@@ -139,7 +190,26 @@ find_facet_candidates_condensed <- function(df,
   )
 
   if (nrow(df) == 0) {
-    return(empty_candidates)
+    if (!return_details) {
+      return(empty_candidates)
+    }
+    return(list(
+      candidates = empty_candidates,
+      membership = data.frame(),
+      parameters = list(
+        neighbour_radius = neighbour_radius,
+        merge_radius = merge_radius,
+        weight_exponent = weight_exponent,
+        max_iterations = max_iterations,
+        step_size = step_size,
+        tolerance = tolerance,
+        min_cluster_size = min_cluster_size,
+        select_point = select_point,
+        cores = cores,
+        iterations_run = 0L,
+        converged = TRUE
+      )
+    ))
   }
 
   if (!"source_index" %in% names(df)) {
@@ -167,9 +237,14 @@ find_facet_candidates_condensed <- function(df,
 
   n <- nrow(df)
 
-  # Make weights positive while preserving relative height differences.
+  # Use non-negative contrast/height values directly so their absolute
+  # 0--1 scale is preserved. Shift only when negative values are present.
   height_min <- min(height, na.rm = TRUE)
-  weights <- height - height_min + .Machine$double.eps
+  if (height_min < 0) {
+    weights <- height - height_min + .Machine$double.eps
+  } else {
+    weights <- height
+  }
 
   if (weight_exponent != 1) {
     weights <- weights ^ weight_exponent
@@ -276,6 +351,7 @@ find_facet_candidates_condensed <- function(df,
       chunk_id <- cut(seq_len(n), breaks = n_chunks, labels = FALSE)
       chunks <- split(seq_len(n), chunk_id)
 
+      chunk <- NULL  # foreach iteration variable; explicit binding for R CMD check
       coords_next <- foreach::foreach(
         chunk = chunks,
         .combine = rbind,
@@ -304,39 +380,14 @@ find_facet_candidates_condensed <- function(df,
     }
   }
 
-  merge_radius_sq <- merge_radius ^ 2
-  grid_final <- make_grid(coords_current, merge_radius)
-
-  cluster_id <- rep(NA_integer_, n)
-  curr_cluster <- 0L
-
-  for (i in seq_len(n)) {
-    if (!is.na(cluster_id[i])) {
-      next
-    }
-
-    curr_cluster <- curr_cluster + 1L
-    queue <- i
-    cluster_id[i] <- curr_cluster
-
-    while (length(queue) > 0) {
-      q <- queue[1]
-      queue <- queue[-1]
-
-      neighbours <- get_neighbours(
-        i = q,
-        coords = coords_current,
-        grid_obj = grid_final,
-        radius_sq = merge_radius_sq
-      )
-
-      unassigned <- neighbours[is.na(cluster_id[neighbours])]
-
-      if (length(unassigned) > 0) {
-        cluster_id[unassigned] <- curr_cluster
-        queue <- c(queue, unassigned)
-      }
-    }
+  if (n == 1L) {
+    cluster_id <- 1L
+  } else {
+    # Complete linkage prevents single-linkage chaining: every pair of
+    # converged points within a final group must be no farther apart than
+    # merge_radius.
+    merge_tree <- stats::hclust(stats::dist(coords_current), method = "complete")
+    cluster_id <- stats::cutree(merge_tree, h = merge_radius)
   }
 
   candidates <- list()

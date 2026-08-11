@@ -1,59 +1,102 @@
-#' Find Local Vertex Heights
+#' Calculate Local Surface Heights
 #'
-#' Calculate distance of vertices from local plane.
+#' Calculates the local height of each triangle centre in a surface mesh
+#' relative to its surrounding surface. For each triangle, a local reference
+#' plane is defined from the mean centre coordinates and mean surface normal of
+#' neighbouring triangles. The signed distance of the focal triangle centre
+#' from this plane is returned as its local surface height.
 #'
-#' @param df A tibble containing triangle center coordinates in columns `x, y, z`.
-#' @param search_diam A numerical value defining the size of the search diameter 
-#' of defining the local plane.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-# @param normalize A numerical value to specifiy if local distances should be
-# normalized within a the given radius. If `NULL`, normalizing will be skipped.
-# Default: `NULL`. Recommended: `serach_daim/2`.
+#' Local surface heights are used by CV3D to identify the raised centres of
+#' compound-eye facets.
 #'
-#' @return Tibble `df` with additional column `local_height`.
+#' @param df A data frame or tibble containing triangle-centre coordinates
+#'   (`x`, `y`, `z`) and triangle-normal components (`norm.x`, `norm.y`,
+#'   `norm.z`).
+#' @param neighbourhood_radius Numeric. Radius, in micrometres (µm), of the
+#'   spherical Euclidean neighbourhood used to define the local reference plane.
+#'   CV3D currently assumes all input coordinates are expressed in micrometres.
+#' @param colour_lower_quantile Numeric. Lower quantile used to clip the
+#'   greyscale colour representation of raw local heights. Default: `0.10`.
+#' @param colour_upper_quantile Numeric. Upper quantile used to clip the
+#'   greyscale colour representation of raw local heights. Default: `0.90`.
+#' @param contrast_lower_quantile Numeric. Lower quantile used after the
+#'   historical `10^local_height` peak-enhancing transform before rescaling the
+#'   contrast variable to 0--1. Default: `0.50`.
+#' @param contrast_upper_quantile Numeric. Upper quantile used after the
+#'   peak-enhancing transform before rescaling to 0--1. Default: `0.90`.
+#' @param cores Integer. Number of processor cores used for parallel
+#'   calculation. Default: `1`.
+#' @param plot_file Character or `NULL`. If a file path is supplied, write a
+#'   PDF containing diagnostic plots of the raw, quantile-filtered, and
+#'   contrast-enhanced local-height values. Default: `NULL`.
+#' @param verbose Logical. If `TRUE`, print progress and timing information.
+#'   Default: `FALSE`.
+#' @param invert Logical. If `TRUE`, multiply calculated local heights by
+#'   `-1`. Default: `FALSE`.
+#'
+#' @return The input data with five additional columns: `local_height`, the
+#'   signed local surface height in micrometres; `local_height_col`, colours representing the
+#'   raw local heights; `local_height_filtered_col`, colours based on
+#'   quantile-filtered local heights; `local_height_contrast`, a 0--1
+#'   peak-enhancing contrast scale based on `10^local_height` after clipping
+#'   to configurable quantiles (50th and 90th percentiles by default); and `local_height_contrast_col`, colours
+#'   based on that contrast scale.
 #'
 #' @export
 #' @examples
-#' # xxx: add example
+#' surface <- expand.grid(x = -1:1, y = -1:1)
+#' surface$z <- 0.1 * (surface$x^2 + surface$y^2)
+#' surface$norm.x <- 0
+#' surface$norm.y <- 0
+#' surface$norm.z <- 1
+#' heights <- calculate_local_heights(
+#'   surface,
+#'   neighbourhood_radius = 1,
+#'   cores = 1,
+#'   verbose = FALSE
+#' )
+#' heights[, c("x", "y", "z", "local_height")]
 #'
 calculate_local_heights <- function(df,
-                                    search_diam,
+                                    neighbourhood_radius,
+                                    colour_lower_quantile = 0.10,
+                                    colour_upper_quantile = 0.90,
+                                    contrast_lower_quantile = 0.50,
+                                    contrast_upper_quantile = 0.90,
                                     cores = 1,
-                                    log_scale = TRUE,
                                     plot_file = NULL,
                                     verbose = FALSE,
                                     invert = FALSE){
   
   # load package for multi-core
-  require(doParallel)
-  
-  # # testing
-  # # tri_centers_normals <- readr::read_csv("X:/Pub/2021/_Ruehr_AntVision/data/3_triangle_centers_and_normals//AV00001_Camponotus_hyatti_eye1_surface.csv",
-  # #                                        show_col_types = FALSE)
-  # df = tri_centers_normals[1:100, ]
-  # search_diam = curr_facet_estimate*3
-  # cores = 12
-  # # log_scale = TRUE
-  # plot_file = file.path(local_heights_folder,
-  #                       gsub("csv$", "pdf", curr_filename_out))
-  # verbose = TRUE
-  # invert = TRUE
-  # #/ testing
   
   # dplyr NULLs
   x <- y <- z <- value <- value.1 <- value.2 <- row_number <- norm.x <- 
-    norm.y <- norm.z <- i <- search_diam_local_height <- local_height <- NULL
+    norm.y <- norm.z <- i <- local_height <- NULL
   
-  # convert search_diam to numeric if necessary
-  search_diam <- as.numeric(search_diam)
+  # convert neighbourhood radius to numeric if necessary
+  neighbourhood_radius <- as.numeric(neighbourhood_radius)
+  if(length(neighbourhood_radius) != 1 || !is.finite(neighbourhood_radius) || neighbourhood_radius <= 0){
+    stop("neighbourhood_radius must be a positive finite numeric value.", call. = FALSE)
+  }
+
+  validate_quantile_pair <- function(lower, upper, label) {
+    if (!is.numeric(lower) || !is.numeric(upper) || length(lower) != 1 ||
+        length(upper) != 1 || !is.finite(lower) || !is.finite(upper) ||
+        lower < 0 || upper > 1 || lower >= upper) {
+      stop(label, " must satisfy 0 <= lower < upper <= 1.", call. = FALSE)
+    }
+  }
+  validate_quantile_pair(colour_lower_quantile, colour_upper_quantile,
+                         "Colour quantiles")
+  validate_quantile_pair(contrast_lower_quantile, contrast_upper_quantile,
+                         "Contrast quantiles")
   
   # define function to normalize vector
   normalize_vector <- function(v){
     v/sqrt(sum(v^2))
   }
   
-  # calculate once, not once per vertex
-  search_diam_local_height <- round(1/8 * search_diam, 2)
   
   # extract coordinates and normals once for faster repeated access
   coords <- as.matrix(df[, c("x", "y", "z")])
@@ -63,8 +106,8 @@ calculate_local_heights <- function(df,
   storage.mode(normals) <- "double"
   
   # build simple spatial grid to avoid filtering the full data frame for every point
-  use_grid <- is.finite(search_diam_local_height) &&
-    search_diam_local_height > 0 &&
+  use_grid <- is.finite(neighbourhood_radius) &&
+    neighbourhood_radius > 0 &&
     all(is.finite(coords))
   
   if(use_grid){
@@ -76,7 +119,7 @@ calculate_local_heights <- function(df,
     coord_origin <- apply(coords, 2, min)
     
     cell_mat <- floor(sweep(coords, 2, coord_origin, FUN = "-") /
-                        search_diam_local_height)
+                        neighbourhood_radius)
     
     cell_keys <- paste(cell_mat[, 1],
                        cell_mat[, 2],
@@ -96,16 +139,15 @@ calculate_local_heights <- function(df,
     start_time <- Sys.time()
   }
   
-  # calculate distance of all vertices to local plane within search_diam
-  registerDoParallel(cores)
+  # calculate distance of all vertices to local plane within the local neighbourhood
+  doParallel::registerDoParallel(cores)
   
   if(verbose == TRUE){
     cat("Calculating local heights for all", nrow(df), "vertices...\n")
   }
   
-  local_heights <- foreach(i = 1:nrow(df),
-                           .combine = c,
-                           .packages = c('dplyr', 'geometry')) %dopar% {
+  local_heights <- foreach::foreach(i = 1:nrow(df),
+                           .combine = c) %dopar% {
                              
                              curr.facet.x.y.z <- coords[i, ]
                              
@@ -124,26 +166,19 @@ calculate_local_heights <- function(df,
                                if(length(idx) > 0){
                                  candidate_coords <- coords[idx, , drop = FALSE]
                                  
-                                 # exact same cubic neighbourhood filter as in the original function
-                                 keep <- candidate_coords[, 1] >= curr.facet.x.y.z[1] - search_diam_local_height &
-                                   candidate_coords[, 2] >= curr.facet.x.y.z[2] - search_diam_local_height &
-                                   candidate_coords[, 3] >= curr.facet.x.y.z[3] - search_diam_local_height &
-                                   candidate_coords[, 1] <= curr.facet.x.y.z[1] + search_diam_local_height &
-                                   candidate_coords[, 2] <= curr.facet.x.y.z[2] + search_diam_local_height &
-                                   candidate_coords[, 3] <= curr.facet.x.y.z[3] + search_diam_local_height
+                                 # Keep only points inside the spherical Euclidean neighbourhood.
+                                 # Squared distances avoid an unnecessary square-root operation.
+                                 offsets <- sweep(candidate_coords, 2, curr.facet.x.y.z, FUN = "-")
+                                 keep <- rowSums(offsets^2) <= neighbourhood_radius^2
                                  
                                  idx <- idx[!is.na(keep) & keep]
                                }
                                
                              } else {
                                
-                               # fallback: original full search, but using matrix operations instead of dplyr
-                               keep <- coords[, 1] >= curr.facet.x.y.z[1] - search_diam_local_height &
-                                 coords[, 2] >= curr.facet.x.y.z[2] - search_diam_local_height &
-                                 coords[, 3] >= curr.facet.x.y.z[3] - search_diam_local_height &
-                                 coords[, 1] <= curr.facet.x.y.z[1] + search_diam_local_height &
-                                 coords[, 2] <= curr.facet.x.y.z[2] + search_diam_local_height &
-                                 coords[, 3] <= curr.facet.x.y.z[3] + search_diam_local_height
+                               # Fallback full search using the same spherical Euclidean criterion.
+                               offsets <- sweep(coords, 2, curr.facet.x.y.z, FUN = "-")
+                               keep <- rowSums(offsets^2) <= neighbourhood_radius^2
                                
                                idx <- which(!is.na(keep) & keep)
                              }
@@ -168,15 +203,13 @@ calculate_local_heights <- function(df,
                                # find vector of current point to arbitrary other point on plane (here: plane center)
                                vector_point_facet_center <- curr.facet.x.y.z - curr.facets.center
                                
-                               curr_local_height <- dot(vector_point_facet_center,
-                                                        curr.facets.av.normal.normailzed, 
-                                                        d = TRUE)
+                               curr_local_height <- sum(vector_point_facet_center * curr.facets.av.normal.normailzed)
                              }
                              
                              tmp <- curr_local_height
                            }
   
-  stopImplicitCluster()
+  doParallel::stopImplicitCluster()
   
   # add distances to local planes to df tibble
   if(invert == FALSE){
@@ -197,29 +230,43 @@ calculate_local_heights <- function(df,
   }
   
   if(verbose == TRUE){
-    cat("Adding quantile-filtered and logarhitmic scales...\n")
+    cat("Adding quantile-filtered and contrast-enhanced scales...\n")
   }
-  # add color values for RAW local heights
+  # add colour values for raw local heights
   local_height_cols_raw <- get_height_colors(heights = df$local_height)
-  
-  
-  local_height_cols_filtered <- get_height_colors(heights = df$local_height,
-                                                  lower_quantile = 0.1,
-                                                  upper_quantile = 0.9)
-  
-  local_height_cols_filtered_log <- get_height_colors(heights = 10^df$local_height,
-                                                      lower_quantile = 0.5,
-                                                      upper_quantile = 0.9)
-  
-  # add colour column for raw values
+
+  local_height_cols_filtered <- get_height_colors(
+    heights = df$local_height,
+    lower_quantile = colour_lower_quantile,
+    upper_quantile = colour_upper_quantile
+  )
+
+  # Peak-enhancing contrast scale used for visual inspection and thresholding.
+  # This retains the historical 10^height transformation and configurable
+  # quantile clipping, but exposes the result on an intuitive 0--1 scale.
+  exp10_height <- 10^df$local_height
+  finite_exp10 <- is.finite(exp10_height)
+  local_height_contrast <- rep(NA_real_, length(exp10_height))
+  if (any(finite_exp10)) {
+    contrast_bounds <- stats::quantile(exp10_height[finite_exp10],
+                                       probs = c(contrast_lower_quantile, contrast_upper_quantile),
+                                       na.rm = TRUE,
+                                       names = FALSE)
+    contrast_clipped <- pmin(pmax(exp10_height[finite_exp10], contrast_bounds[1]),
+                             contrast_bounds[2])
+    if (isTRUE(all.equal(contrast_bounds[1], contrast_bounds[2]))) {
+      local_height_contrast[finite_exp10] <- 0.5
+    } else {
+      local_height_contrast[finite_exp10] <-
+        (contrast_clipped - contrast_bounds[1]) / diff(contrast_bounds)
+    }
+  }
+  local_height_cols_contrast <- get_height_colors(heights = local_height_contrast)
+
   df$local_height_col <- local_height_cols_raw
-  
-  # add colour column for quantile-filtered values
-  df$local_height_filterd_col <- local_height_cols_filtered
-  
-  # add colour and value column for log values
-  df$local_height_log <- 10^df$local_height
-  df$local_height_log_col <- local_height_cols_filtered_log
+  df$local_height_filtered_col <- local_height_cols_filtered
+  df$local_height_contrast <- local_height_contrast
+  df$local_height_contrast_col <- local_height_cols_contrast
   
   
   
@@ -227,28 +274,28 @@ calculate_local_heights <- function(df,
     if(verbose == TRUE){
       cat("2D-plotting to ", plot_file, "...\n")
     }
-    # plot height colours for raw, filtered and log-transformed local heights
+    # plot raw, clipped-colour, and contrast-enhanced local heights
     # dev.print(pdf, file = file.path(df_folder, gsub("csv$", "pdf", curr_filename_out)),
     #           width = (21.0-4)/2.54, height = (29.7-4)/2.54/4)
-    pdf(file = plot_file,
+    grDevices::pdf(file = plot_file,
         width = (21.0-4)/2.54, height = (29.7-4)/2.54/4)
-    par(mfrow=c(1,3))
-    plot(df$local_height, col = local_height_cols_raw, pch=16, cex=.2,
+    graphics::par(mfrow=c(1,3))
+    graphics::plot(df$local_height, col = local_height_cols_raw, pch=16, cex=.2,
          main = "raw",
          xlab = "idx",
          ylab = "raw local height")
     
-    plot(df$local_height, col = local_height_cols_filtered, pch=16, cex=.2,
+    graphics::plot(df$local_height, col = local_height_cols_filtered, pch=16, cex=.2,
          main = "quantile",
          xlab = "idx",
          ylab = "quantile-filtered local height")
     
-    plot(df$local_height, col = local_height_cols_filtered_log, pch=16, cex=.2,
-         main = "quantile & log",
+    graphics::plot(df$local_height_contrast, col = local_height_cols_contrast, pch=16, cex=.2,
+         main = "contrast",
          xlab = "idx",
-         ylab = "quantile-filtered log10(local height)")
-    par(mfrow=c(1,1))
-    dev.off()
+         ylab = "local-height contrast (0-1)")
+    graphics::par(mfrow=c(1,1))
+    grDevices::dev.off()
     # dev.print(pdf, file = file.path(df_folder, gsub("csv$", "pdf", curr_filename_out)),
     #           width = (21.0-4)/2.54, height = (29.7-4)/2.54/4)
   }
@@ -260,162 +307,182 @@ calculate_local_heights <- function(df,
   return(df)
 }
 
-#' Get colour values !HERE: Change description
+#' Map Surface Heights to Greyscale Colours
 #'
-#' Calculate distance of vertices from local plane.
+#' Maps numeric surface-height values to a greyscale colour vector for
+#' visualisation. Optionally, values can be clipped at lower and upper
+#' quantiles before colour mapping to reduce the influence of extreme values.
 #'
-#' @param df A tibble containing triangle center coordinates in columns `x, y, z`.
-#' @param search_diam A numerical value defining the size of the search diameter 
-#' of defining the local plane.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-# @param normalize A numerical value to specifiy if local distances should be
-# normalized within a the given radius. If `NULL`, normalizing will be skipped.
-# Default: `NULL`. Recommended: `serach_daim/2`.
-#' @importFrom forceR rescale_to_range
+#' @param heights Numeric vector of surface-height values.
+#' @param lower_quantile Numeric value between `0` and `1`, or `NULL`. If
+#'   supplied together with `upper_quantile`, values below this quantile are
+#'   clipped to the corresponding quantile value. Default: `NULL`.
+#' @param upper_quantile Numeric value between `0` and `1`, or `NULL`. If
+#'   supplied together with `lower_quantile`, values above this quantile are
+#'   clipped to the corresponding quantile value. Default: `NULL`.
+#' @param verbose Logical. If `TRUE`, print progress information. Default:
+#'   `FALSE`.
 #'
-#' @return Tibble `df` with additional column `local_height`.
+#' @return A character vector of greyscale colours with the same length as
+#'   `heights`.
 #'
-#' @export
-#' @examples
-#' # xxx: add example
+#' @keywords internal
 #'
 get_height_colors <- function(heights,
                               lower_quantile = NULL,
                               upper_quantile = NULL,
-                              verbose = FALSE){
-  
-  # # testing
-  # lower_quantile = NULL
-  # upper_quantile = NULL
-  # heights = local_heights$local_height
-  # heights = 10^local_heights$local_height
-  # range(heights)
-  # lower_quantile = 0.1
-  # upper_quantile = 0.9
-  
-  
-  if(!is.null(upper_quantile) & !is.null(lower_quantile)){
-    # set upper and lower boundary for local heights
-    heights[heights >= 
-              quantile(heights, upper_quantile)] <-
-      quantile(heights, upper_quantile)
-    
-    if(min(heights) < 0){
-      if(verbose == TRUE){
-        print("non-logarigthmic")
-      }
-      heights[heights <= 
-                quantile(heights, lower_quantile)] <-
-        quantile(heights, lower_quantile)
-    } else{
-      if(verbose == TRUE){
-        print("logarigthmic")
-      }
-      heights[heights <= 
-                quantile(heights, lower_quantile)] <-
-        quantile(heights, lower_quantile)
+                              verbose = FALSE) {
+  heights <- as.numeric(heights)
+
+  if (!is.null(lower_quantile) || !is.null(upper_quantile)) {
+    if (is.null(lower_quantile) || is.null(upper_quantile)) {
+      stop("lower_quantile and upper_quantile must either both be supplied or both be NULL.", call. = FALSE)
     }
+    if (!is.numeric(lower_quantile) || !is.numeric(upper_quantile) ||
+        length(lower_quantile) != 1 || length(upper_quantile) != 1 ||
+        !is.finite(lower_quantile) || !is.finite(upper_quantile) ||
+        lower_quantile < 0 || upper_quantile > 1 || lower_quantile > upper_quantile) {
+      stop("Quantiles must satisfy 0 <= lower_quantile <= upper_quantile <= 1.", call. = FALSE)
+    }
+    bounds <- stats::quantile(heights, probs = c(lower_quantile, upper_quantile), na.rm = TRUE)
+    heights <- pmin(pmax(heights, bounds[1]), bounds[2])
   }
-  
-  if(verbose == TRUE){
-    message("Adding colours for height values...")
+
+  if (verbose) message("Adding colours for height values...")
+
+  finite <- is.finite(heights)
+  colours <- rep(NA_character_, length(heights))
+  if (!any(finite)) return(colours)
+
+  values <- heights[finite]
+  value_range <- range(values)
+  if (diff(value_range) == 0) {
+    scaled <- rep(50000L, length(values))
+  } else {
+    scaled <- round(1 + (values - value_range[1]) / diff(value_range) * 99999)
   }
-  # create color vector
-  color_df <- tibble(local_height = round(seq(0, 100000-1, length.out = 100000)), 
-                     local_height_col = grey.colors(100000, start=0.0)) %>% 
-    distinct(local_height, .keep_all = TRUE)
-  
-  # add colors
-  local_height_cols <- tibble(local_height = heights) %>% 
-    mutate(local_height = round(rescale_to_range(local_height, 1, 100000))) %>% 
-    left_join(color_df, by = "local_height") %>% 
-    pull(local_height_col)
-  
-  return(local_height_cols)
+  palette <- grDevices::grey.colors(100000, start = 0.0)
+  colours[finite] <- palette[pmax(1L, pmin(100000L, as.integer(scaled)))]
+  colours
 }
 
 
-#' Noramlize Local Vertex Heights
+#' Normalize Local Surface Heights
 #'
-#' xxx: update! Calculate distance of vertices from local plane.
+#' Normalizes local surface-height values relative to their spatial
+#' neighbourhood. For each triangle centre, values within a spherical
+#' Euclidean neighbourhood are clipped to configurable lower and upper
+#' quantiles (10th and 90th percentiles by default) and rescaled to the range
+#' from 0 to 1. Because neighbourhoods overlap, each
+#' triangle can receive normalized values from multiple neighbourhoods. The
+#' final normalized value of each triangle is the mean of these values.
 #'
-#' @param df A tibble containing triangle center coordinates in columns `x, y, z`.
-#' @param search_diam A numerical value defining the size of the search diameter 
-#' of defining the local plane.
-#' @param cores A numerical value of how many cores to use. Default: `1`.
-# @param normalize A numerical value to specifiy if local distances should be
-# normalized within a the given radius. If `NULL`, normalizing will be skipped.
-# Default: `NULL`. Recommended: `serach_daim/2`.
+#' This optional normalization can reduce spatial variation in local-height
+#' magnitude across a compound-eye surface before facet-candidate detection.
 #'
-#' @return Tibble `df` with additional column `local_height`.
+#' @param df A data frame or tibble containing triangle-centre coordinates
+#'   (`x`, `y`, `z`) and the numeric column to be normalized.
+#' @param neighbourhood_radius Numeric. Radius, in micrometres (µm), of the
+#'   spherical Euclidean neighbourhood used for local normalization. CV3D
+#'   currently assumes all input coordinates are expressed in micrometres.
+#' @param lower_quantile Numeric. Lower local quantile used for clipping before
+#'   0--1 rescaling. Default: `0.10`.
+#' @param upper_quantile Numeric. Upper local quantile used for clipping before
+#'   0--1 rescaling. Default: `0.90`.
+#' @param column_to_normalize Character. Name of the numeric column to
+#'   normalize. Default: `"local_height"`.
+#' @param cores Integer. Number of processor cores used for parallel
+#'   calculation. Default: `1`.
+#' @param plot_file Character or `NULL`. If supplied, write diagnostic
+#'   visualizations of the original and normalized local-height values.
+#'   Default: `NULL`.
+#' @param plot_results Logical. If `TRUE` and `plot_file` is supplied, keep the
+#'   interactive `rgl` visualization open after saving the diagnostic image.
+#'   Default: `FALSE`.
+#' @param verbose Logical. If `TRUE`, print progress and timing information.
+#'   Default: `FALSE`.
+#'
+#' @return The input data with additional normalization columns, including
+#'   `local_height_norm`, containing locally normalized values between 0 and 1;
+#'   `local_height_norm_col`, its greyscale colour representation;
+#'   `local_height_norm_contrast`, a base-10 peak-enhancing transform rescaled
+#'   to 0--1; and `local_height_norm_contrast_col`, its colour representation.
+#'
+#' @examples
+#' surface <- expand.grid(x = -1:1, y = -1:1)
+#' surface$z <- 0
+#' surface$local_height <- seq_len(nrow(surface))
+#' normalized <- normalize_local_heights(
+#'   surface,
+#'   neighbourhood_radius = 1.5,
+#'   cores = 1,
+#'   plot_results = FALSE,
+#'   verbose = FALSE
+#' )
+#' normalized[, c("x", "y", "z", "local_height_norm")]
 #'
 #' @export
-#' @examples
-#' # xxx: add example
 #'
 normalize_local_heights <- function(df,
-                                    normalize_diam,
+                                    neighbourhood_radius,
                                     column_to_normalize = "local_height",
-                                    cores = 12,
+                                    lower_quantile = 0.10,
+                                    upper_quantile = 0.90,
+                                    cores = 1,
                                     plot_file = NULL,
-                                    plot_results = TRUE,
+                                    plot_results = FALSE,
                                     verbose = FALSE){
   
   # # # testing
-  # df = local_heights %>% slice(1:1000)
-  # column_to_normalize = "local_height_log" # "local_height" "local_height_log"
-  # normalize_diam = curr_facet_estimate
+  # df = local_heights %>% dplyr::slice(1:1000)
+  # neighbourhood_radius = curr_facet_estimate
   # cores = 12
   # plot_file = file.path(local_heights_normalized_folder,
   #                       gsub("csv$", "pdf", curr_filename_out))
   # verbose = TRUE
   # # df %>%
-  # #   select(x, one_of(column_to_normalize)) %>%
+  # #   dplyr::select(x, one_of(column_to_normalize)) %>%
   # #   rename(local_height = 2)
   
   
-  # convert search_diam to numeric if necessary
-  normalize_diam <- as.numeric(normalize_diam)
+  # convert neighbourhood radius to numeric if necessary
+  neighbourhood_radius <- as.numeric(neighbourhood_radius)
   
-  # The optimized neighborhood search below uses grid cells with
-  # cell size = normalize_diam. This requires a positive search diameter.
-  if(is.na(normalize_diam) || normalize_diam <= 0){
-    stop("normalize_diam must be a positive numeric value.")
+  # The optimized neighbourhood search below uses grid cells with
+  # cell size = neighbourhood_radius. This requires a positive radius.
+  if(length(neighbourhood_radius) != 1 || !is.finite(neighbourhood_radius) || neighbourhood_radius <= 0){
+    stop("neighbourhood_radius must be a positive finite numeric value.", call. = FALSE)
   }
-  
-  # if(!is.null(plot_file)){
-  require(rgl)
-  # }
-  
-  require(forceR)
-  require(doParallel)
-  require(dplyr)
-  
+  if (!is.numeric(lower_quantile) || !is.numeric(upper_quantile) ||
+      length(lower_quantile) != 1 || length(upper_quantile) != 1 ||
+      !is.finite(lower_quantile) || !is.finite(upper_quantile) ||
+      lower_quantile < 0 || upper_quantile > 1 || lower_quantile >= upper_quantile) {
+    stop("Normalization quantiles must satisfy 0 <= lower_quantile < upper_quantile <= 1.", call. = FALSE)
+  }
   # dplyr NULLs
   x <- y <- z <- value <- value.1 <- value.2 <- row_number <- norm.x <-
     norm.y <- norm.z <- i <- n <- local_height <- local_heights_quantiles_normalized <- NULL
   
   # # plot eye in 'SEM colors'
-  # plot3d(df %>%
-  #          select(x,y,z),
+  # rgl::plot3d(df %>%
+  #          dplyr::select(x,y,z),
   #        col = df %>%
-  #          pull(local_height_log_col),
   #        aspect = "iso",
   #        size=8)
   
   df <- df %>%
-    mutate(n=row_number())
+    dplyr::mutate(n=dplyr::row_number())
   
   # -------------------------------------------------------------------------
   # OPTIMIZED NORMALIZATION CORE
   # -------------------------------------------------------------------------
   # Original behaviour:
   # For every center point i:
-  #   1. find all points inside the x/y/z cube of radius normalize_diam
-  #   2. quantile-filter and rescale the selected column within that local cube
-  #   3. return one normalized value for every point in that cube
+  #   1. find all points inside the spherical Euclidean neighbourhood
+  #   2. quantile-filter and rescale the selected column within that local sphere
+  #   3. return one normalized value for every point in that sphere
   # Final value per point:
-  #   mean of all normalized values assigned to that point from all overlapping cubes
+  #   mean of all normalized values assigned to that point from all overlapping spheres
   #
   # The expensive parts in the old version were:
   #   - scanning the complete df once for every point
@@ -445,12 +512,20 @@ normalize_local_heights <- function(df,
   y_vec <- df$y
   z_vec <- df$z
   col_to_norm_vec <- df[[column_to_normalize]]
+
+  rescale_local <- function(values, lower = 0, upper = 1) {
+    values <- as.numeric(values)
+    value_range <- range(values, na.rm = TRUE)
+    if (!all(is.finite(value_range))) return(rep(NA_real_, length(values)))
+    if (diff(value_range) == 0) return(rep((lower + upper) / 2, length(values)))
+    lower + (values - value_range[1]) / diff(value_range) * (upper - lower)
+  }
   
   # Build a simple spatial grid.
-  # Cell size equals normalize_diam.
-  # Therefore, any point within +/- normalize_diam of a center point
+  # Cell size equals neighbourhood_radius.
+  # Therefore, any point within the spherical radius of a centre point
   # can only lie in the same or directly adjacent cell along each axis.
-  cell_size <- normalize_diam
+  cell_size <- neighbourhood_radius
   
   valid_coord_rows <- is.finite(x_vec) & is.finite(y_vec) & is.finite(z_vec)
   
@@ -478,9 +553,9 @@ normalize_local_heights <- function(df,
                                   dz = -1:1)
   neighbor_offsets <- as.matrix(neighbor_offsets)
   
-  # Helper: get candidate indices from nearby grid cells,
-  # then apply the exact same cube condition as the original dplyr::filter().
-  get_cube_neighbor_indices <- function(i){
+  # Helper: get candidate indices from nearby grid cells, then apply
+  # the spherical Euclidean distance criterion.
+  get_sphere_neighbor_indices <- function(i){
     
     if(!valid_coord_rows[i]){
       return(integer(0))
@@ -505,16 +580,13 @@ normalize_local_heights <- function(df,
       return(integer(0))
     }
     
-    # Exact cube filtering.
-    # This preserves the old condition:
-    # x/y/z must each be within +/- normalize_diam of the center point.
+    # Exact spherical Euclidean filtering. The surrounding grid cells are
+    # only a fast preselection; neighbourhood membership is rotation invariant.
+    dx <- x_vec[candidate_idx] - x_vec[i]
+    dy <- y_vec[candidate_idx] - y_vec[i]
+    dz <- z_vec[candidate_idx] - z_vec[i]
     candidate_idx <- candidate_idx[
-      x_vec[candidate_idx] >= x_vec[i] - normalize_diam &
-        x_vec[candidate_idx] <= x_vec[i] + normalize_diam &
-        y_vec[candidate_idx] >= y_vec[i] - normalize_diam &
-        y_vec[candidate_idx] <= y_vec[i] + normalize_diam &
-        z_vec[candidate_idx] >= z_vec[i] - normalize_diam &
-        z_vec[candidate_idx] <= z_vec[i] + normalize_diam
+      dx^2 + dy^2 + dz^2 <= neighbourhood_radius^2
     ]
     
     candidate_idx
@@ -534,15 +606,15 @@ normalize_local_heights <- function(df,
     start_time <- Sys.time()
   }
   
-  registerDoParallel(cores)
+  doParallel::registerDoParallel(cores)
   
   # Instead of one foreach task per point, use one foreach task per block.
   # Inside each block, we loop over the center points and accumulate directly.
-  normalized_accumulated <- foreach(k = seq_along(starts),
+  k <- NULL  # foreach iteration variable; explicit binding for R CMD check
+  normalized_accumulated <- foreach::foreach(k = seq_along(starts),
                                     .combine = combine_norm_results,
                                     .init = list(sum_norm = numeric(n_total),
-                                                 count_norm = numeric(n_total)),
-                                    .packages = c('forceR')) %dopar% {
+                                                 count_norm = numeric(n_total))) %dopar% {
                                       
                                       s <- starts[k]
                                       e <- (s + max_rows - 1)
@@ -555,34 +627,37 @@ normalize_local_heights <- function(df,
                                       
                                       for(i in s:e){
                                         
-                                        curr_neighbor_idx <- get_cube_neighbor_indices(i)
+                                        curr_neighbor_idx <- get_sphere_neighbor_indices(i)
                                         
-                                        # Same logic as before:
-                                        # only process neighborhoods containing more than one point.
+                                        # Normalize finite values only. Points that never receive a
+                                        # valid contribution remain NA in the final result rather than
+                                        # being assigned an invented fallback value.
                                         if(length(curr_neighbor_idx) > 1){
-                                          
                                           curr_values <- col_to_norm_vec[curr_neighbor_idx]
-                                          
-                                          # set outliers as quantile values
-                                          curr_Q <- quantile(curr_values, probs=c(.10, .90), na.rm = FALSE)
-                                          curr_Q_min <- curr_Q[1]
-                                          curr_Q_max <- curr_Q[2]
-                                          
-                                          curr_values_quantiles <- pmin(pmax(curr_values, curr_Q_min),
-                                                                        curr_Q_max)
-                                          
-                                          curr_values_normalized <- rescale_to_range(curr_values_quantiles, 0, 1)
-                                          
-                                          # Old behaviour:
-                                          # one normalized value is emitted for every point in the current ROI.
-                                          #
-                                          # New implementation:
-                                          # directly add those emitted values to the target rows.
-                                          curr_sum_norm[curr_neighbor_idx] <-
-                                            curr_sum_norm[curr_neighbor_idx] + curr_values_normalized
-                                          
-                                          curr_count_norm[curr_neighbor_idx] <-
-                                            curr_count_norm[curr_neighbor_idx] + 1
+                                          valid_local <- is.finite(curr_values)
+                                          if(sum(valid_local) > 1){
+                                            valid_idx <- curr_neighbor_idx[valid_local]
+                                            valid_values <- curr_values[valid_local]
+
+                                            curr_Q <- stats::quantile(
+                                              valid_values,
+                                              probs = c(lower_quantile, upper_quantile),
+                                              na.rm = TRUE,
+                                              names = FALSE
+                                            )
+                                            curr_values_quantiles <- pmin(
+                                              pmax(valid_values, curr_Q[1]),
+                                              curr_Q[2]
+                                            )
+                                            curr_values_normalized <- rescale_local(
+                                              curr_values_quantiles, 0, 1
+                                            )
+
+                                            curr_sum_norm[valid_idx] <-
+                                              curr_sum_norm[valid_idx] + curr_values_normalized
+                                            curr_count_norm[valid_idx] <-
+                                              curr_count_norm[valid_idx] + 1
+                                          }
                                         }
                                       }
                                       
@@ -591,7 +666,7 @@ normalize_local_heights <- function(df,
                                     }
   
   # terminate cluster
-  stopImplicitCluster()
+  doParallel::stopImplicitCluster()
   
   if(verbose == TRUE){
     cat("Multi-threaded analysis finished.\n")
@@ -613,72 +688,86 @@ normalize_local_heights <- function(df,
   # but produces the same quantity:
   #   local_height_norm = sum of all assigned normalized values /
   #                       number of assigned normalized values
-  df_normalized_summarized <- tibble(n = seq_len(n_total),
-                                     local_height_norm =
-                                       normalized_accumulated$sum_norm /
-                                       normalized_accumulated$count_norm)
+  normalized_values <- rep(NA_real_, n_total)
+  has_contribution <- normalized_accumulated$count_norm > 0
+  normalized_values[has_contribution] <-
+    normalized_accumulated$sum_norm[has_contribution] /
+    normalized_accumulated$count_norm[has_contribution]
+
+  df_normalized_summarized <- tibble::tibble(
+    n = seq_len(n_total),
+    local_height_norm = normalized_values
+  )
   
   df_fin <- df %>%
-    left_join(df_normalized_summarized, by = "n") %>%
-    select(-n)
+    dplyr::left_join(df_normalized_summarized, by = "n") %>%
+    dplyr::select(-n)
   
   # -------------------------------------------------------------------------
   # END OPTIMIZED NORMALIZATION CORE
   # -------------------------------------------------------------------------
   
-  # fill NA values (points where no other points were int the search radius around them) with median value
-  df_fin <- df_fin %>%
-    mutate(local_height_norm = ifelse(is.na(local_height_norm), median(local_height_norm, na.rm=TRUE), local_height_norm))
-  
-  # hist(df_fin$local_height_norm)
-  
-  if(verbose == TRUE){
-    cat("Adding quantile-filtered and logarithmic scales...\n")
+  # Points without a valid normalization contribution remain NA. This exposes
+  # sparse/problematic regions instead of silently assigning a median value.
+  if (verbose == TRUE) {
+    missing_norm <- sum(!is.finite(df_fin$local_height_norm))
+    if (missing_norm > 0) {
+      cat(missing_norm, "point(s) could not be normalized and remain NA.\n")
+    }
   }
   
+  if(verbose == TRUE){
+    cat("Adding normalized and contrast-enhanced scales...\n")
+  }
+
   local_height_cols_raw_norm <- get_height_colors(heights = df_fin$local_height_norm)
-  
-  local_height_cols_filtered_norm <- get_height_colors(heights = df_fin$local_height_norm,
-                                                       lower_quantile = 0.1,
-                                                       upper_quantile = 0.9)
-  
-  local_height_cols_filtered_log_norm <- get_height_colors(heights = 10^df_fin$local_height_norm)
-  
-  # add colour column for raw values
+
+  # Preserve the historical 10^height emphasis, but rescale its theoretical
+  # 1--10 range back to 0--1 so thresholds remain intuitive and comparable.
+  local_height_norm_contrast <- (10^df_fin$local_height_norm - 1) / 9
+  local_height_norm_contrast <- pmin(pmax(local_height_norm_contrast, 0), 1)
+  local_height_cols_contrast_norm <- get_height_colors(heights = local_height_norm_contrast)
+
   df_fin$local_height_norm_col <- local_height_cols_raw_norm
-  
-  # add colour and value column for log values
-  df_fin$local_height_log_norm <- 10^df_fin$local_height_norm
-  df_fin$local_height_log_norm_col <- local_height_cols_filtered_log_norm
+  df_fin$local_height_norm_contrast <- local_height_norm_contrast
+  df_fin$local_height_norm_contrast_col <- local_height_cols_contrast_norm
   
   
   
   if(!is.null(plot_file)){
+    if (!requireNamespace("rgl", quietly = TRUE)) {
+      stop("Package 'rgl' is required when plot_file is supplied.", call. = FALSE)
+    }
     if(verbose == TRUE){
       cat("2D-plotting to", plot_file, "...\n")
     }
-    # plot height colours for raw, filtered and log-transformed local heights
-    # dev.print(pdf, file = file.path(df_folder, gsub("csv$", "pdf", curr_filename_out)),
-    #           width = (21.0-4)/2.54, height = (29.7-4)/2.54/4)
-    pdf(file = plot_file,
+    # Compare the input scale with the locally normalized scale and its
+    # peak-enhanced 0--1 contrast representation.
+    grDevices::pdf(file = plot_file,
         width = (21.0-4)/2.54, height = (29.7-4)/2.54/4)
-    par(mfrow=c(1,3))
-    plot(df_fin$local_height, col = df_fin$local_height_col, pch=16, cex=.2,
-         main = "raw",
+    graphics::par(mfrow=c(1,3))
+    input_col <- if (column_to_normalize == "local_height" &&
+                     "local_height_col" %in% names(df_fin)) {
+      df_fin$local_height_col
+    } else {
+      get_height_colors(df_fin[[column_to_normalize]])
+    }
+    graphics::plot(df_fin[[column_to_normalize]], col = input_col, pch=16, cex=.2,
+         main = "input",
          xlab = "idx",
-         ylab = "raw local height")
-    
-    plot(df_fin$local_height, col = df_fin$local_height_filterd_col, pch=16, cex=.2,
-         main = "quantile",
+         ylab = column_to_normalize)
+
+    graphics::plot(df_fin$local_height_norm, col = df_fin$local_height_norm_col, pch=16, cex=.2,
+         main = "normalized",
          xlab = "idx",
-         ylab = "quantile-filtered local height")
-    
-    plot(df_fin$local_height, col = df_fin$local_height_log_col, pch=16, cex=.2,
-         main = "quantile & log",
+         ylab = "local_height_norm (0-1)")
+
+    graphics::plot(df_fin$local_height_norm_contrast, col = df_fin$local_height_norm_contrast_col, pch=16, cex=.2,
+         main = "normalized contrast",
          xlab = "idx",
-         ylab = "quantile-filtered log10(local height)")
-    par(mfrow=c(1,1))
-    dev.off()
+         ylab = "local_height_norm_contrast (0-1)")
+    graphics::par(mfrow=c(1,1))
+    grDevices::dev.off()
     # dev.print(pdf, file = file.path(df_folder, gsub("csv$", "pdf", curr_filename_out)),
     #           width = (21.0-4)/2.54, height = (29.7-4)/2.54/4)
     
@@ -689,44 +778,44 @@ normalize_local_heights <- function(df,
     }
     
     # plot eye in 'SEM colors'
-    close3d()
-    plot3d(df_fin %>%
-             select(x,y,z),
+    rgl::close3d()
+    rgl::plot3d(df_fin %>%
+             dplyr::select(x,y,z),
            col = df_fin %>%
-             pull(local_height_col),
+             dplyr::pull("local_height_col"),
            aspect = "iso",
            size=3)
     
-    points3d(df_fin %>%
-               select(x,y,z) %>%
-               mutate(x = x+max(x)+0.5*diff(range(x))),
+    rgl::points3d(df_fin %>%
+               dplyr::select(x,y,z) %>%
+               dplyr::mutate(x = x+max(x)+0.5*diff(range(x))),
              col = df_fin %>%
-               pull(local_height_log_col),
+               dplyr::pull("local_height_contrast_col"),
              aspect = "iso",
              size=3)
     
     
-    points3d(df_fin %>%
-               select(x,y,z) %>%
-               mutate(z = z-max(z)-0.5*diff(range(z))),
+    rgl::points3d(df_fin %>%
+               dplyr::select(x,y,z) %>%
+               dplyr::mutate(z = z-max(z)-0.5*diff(range(z))),
              col = df_fin %>%
-               pull(local_height_norm_col),
+               dplyr::pull("local_height_norm_col"),
              aspect = "iso",
              size=3)
     
-    points3d(df_fin %>%
-               select(x,y,z) %>%
-               mutate(x = x+max(x)+0.5*diff(range(x)),
+    rgl::points3d(df_fin %>%
+               dplyr::select(x,y,z) %>%
+               dplyr::mutate(x = x+max(x)+0.5*diff(range(x)),
                       z = z-max(z)-0.5*diff(range(z))),
-             col = df_fin %>% pull(local_height_log_norm_col),
+             col = df_fin %>% dplyr::pull("local_height_norm_contrast_col"),
              aspect = "iso",
              size=3)
     
     # # View along the X-axis
-    # view3d(userMatrix = rotationMatrix(pi/2, 0, -1, 0))
+    # rgl::view3d(userMatrix = rgl::rotationMatrix(pi/2, 0, -1, 0))
     
-    par3d(windowRect = c(20, 30, 800, 800))
-    # par3d(userMatrix = rotate3d(par3d("userMatrix"), angle2, 0, 0, -1))
+    rgl::par3d(windowRect = c(20, 30, 800, 800))
+    # rgl::par3d(userMatrix = rotate3d(rgl::par3d("userMatrix"), angle2, 0, 0, -1))
     
     # remove bounding box
     # bbox3d(alpha = 0.0, xlab="NULL")
@@ -734,7 +823,7 @@ normalize_local_heights <- function(df,
     # rotate view roughly to look at eye
     # Step 1: Calculate the mean direction
     mean_vector <- colMeans(df_fin %>%
-                              select(norm.x, norm.y, norm.z))
+                              dplyr::select(norm.x, norm.y, norm.z))
     mean_direction <- mean_vector / sqrt(sum(mean_vector^2))  # Normalize
     
     # Step 2: Calculate the opposite direction
@@ -745,7 +834,7 @@ normalize_local_heights <- function(df,
     # arrow3d(rep(0, 3), opposite_direction*200, col = "green", lwd = 3)
     
     # Step 4: Rotate the view to look in the opposite direction of the mean vector
-    view3d(userMatrix = rotationMatrix(acos(-1),  # 180 degrees rotation
+    rgl::view3d(userMatrix = rgl::rotationMatrix(acos(-1),  # 180 degrees rotation
                                        opposite_direction[1],
                                        opposite_direction[2],
                                        opposite_direction[3]))
@@ -753,12 +842,12 @@ normalize_local_heights <- function(df,
     # # rotate view
     # angle1 <- 45 * (pi/180)   # 45 degrees in radians
     # angle2 <- 60 * (pi/180)   # 60 degrees in radians
-    # par3d(userMatrix = rotate3d(par3d("userMatrix"), angle1, 0, 1, 0))
+    # rgl::par3d(userMatrix = rotate3d(rgl::par3d("userMatrix"), angle1, 0, 1, 0))
     
-    rgl.snapshot(plot_file_3D)
+    rgl::rgl.snapshot(plot_file_3D)
     
     if(plot_results != TRUE){
-      close3d()
+      rgl::close3d()
     }
   }
   

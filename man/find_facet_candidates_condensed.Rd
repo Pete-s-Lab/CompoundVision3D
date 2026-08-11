@@ -2,19 +2,19 @@
 % Please edit documentation in R/clustering.R
 \name{find_facet_candidates_condensed}
 \alias{find_facet_candidates_condensed}
-\title{Condense thresholded local-height points into facet candidate modes}
+\title{Condense Local-Height Points into Facet Candidates}
 \usage{
 find_facet_candidates_condensed(
   df,
   coord_cols = c("x", "y", "z"),
   height_col = "height_value",
   neighbour_radius,
-  merge_radius = neighbour_radius/2,
-  weight_exponent = 1,
-  max_iterations = 10,
-  step_size = 1,
+  merge_radius = neighbour_radius * 0.6,
+  weight_exponent = 2,
+  max_iterations = 8,
+  step_size = 0.7,
   tolerance = neighbour_radius * 0.001,
-  min_cluster_size = 1,
+  min_cluster_size = 3,
   select_point = c("nearest_mode", "max_height"),
   cores = 1,
   return_details = FALSE,
@@ -24,65 +24,100 @@ find_facet_candidates_condensed(
 \arguments{
 \item{df}{A data frame containing thresholded local-height points.}
 
-\item{coord_cols}{Character vector of length 3 giving the coordinate columns.
-Defaults to \code{c("x", "y", "z")}.}
+\item{coord_cols}{Character vector of length three giving the coordinate
+column names. Default: \code{c("x", "y", "z")}.}
 
-\item{height_col}{Name of the height/value column used for weighting. For
-03B output this is usually \code{"height_value"}.}
+\item{height_col}{Character. Name of the local-height column used to weight
+the condensation. Default: \code{"height_value"}.}
 
-\item{neighbour_radius}{Radius within which points influence each other
-during convergence. Must be in the same units as \code{x}, \code{y}, and \code{z}.}
+\item{neighbour_radius}{Numeric. Radius of the spherical neighbourhood
+within which points influence each other during condensation. Must use
+the same spatial units as the coordinate columns.}
 
-\item{merge_radius}{Radius used to merge converged points into final candidate
-groups. Defaults to \code{neighbour_radius / 2}.}
+\item{merge_radius}{Numeric. Maximum permitted pairwise Euclidean
+separation within a final candidate group. Final groups are obtained by
+complete-linkage clustering of the converged positions. Default:
+\code{neighbour_radius * 0.6}.}
 
-\item{weight_exponent}{Exponent applied to positive height weights. Higher
-values make high local-height points pull more strongly. Defaults to \code{1}.}
+\item{weight_exponent}{Numeric, greater than or equal to zero. Exponent
+applied to the local-height weights. Non-negative height values are used
+directly; values are shifted only when negative heights are present. Larger
+values give greater influence to points with high local surface heights.
+Default: \code{2}.}
 
-\item{max_iterations}{Maximum number of condensation iterations. Defaults to
-\code{10}.}
+\item{max_iterations}{Integer. Maximum number of condensation iterations.
+Default: \code{8}.}
 
-\item{step_size}{Fraction of the shift toward the local weighted centre used
-per iteration. Use values below \code{1} for more damped convergence. Defaults
-to \code{1}.}
+\item{step_size}{Numeric in the interval \verb{(0, 1]}. Fraction of the
+displacement towards the local weighted centre applied during each
+iteration. Values below \code{1} damp the movement. Default: \code{0.7}.}
 
-\item{tolerance}{Stop early when the maximum point displacement in an
-iteration falls below this value. Defaults to \code{neighbour_radius * 1e-3}.}
+\item{tolerance}{Numeric. Stop iterating when the maximum displacement of
+any point during an iteration is less than or equal to this value.
+Default: \code{neighbour_radius * 1e-3}.}
 
-\item{min_cluster_size}{Minimum number of original points required for a
-converged group to be retained as a facet candidate. Defaults to \code{1}.}
+\item{min_cluster_size}{Integer. Minimum number of original input points
+required for a condensed group to be retained as a facet candidate.
+Default: \code{3}.}
 
-\item{select_point}{How to choose the actual returned candidate point within
-each converged group. \code{"nearest_mode"} chooses the original point closest
-to the converged group mode. \code{"max_height"} chooses the highest point in
-the group. Defaults to \code{"nearest_mode"}.}
+\item{select_point}{Character. Method used to choose the returned candidate
+from the original points belonging to each group. \code{"nearest_mode"}
+selects the original point nearest the converged weighted mode;
+\code{"max_height"} selects the point with the greatest local-height value.
+Default: \code{"nearest_mode"}.}
 
-\item{cores}{Number of CPU cores used for the independent per-point
-condensation updates. The merging step remains sequential. Defaults to \code{1}.}
+\item{cores}{Integer. Number of processor cores used for the independent
+point-condensation updates. Final grouping is sequential. Default: \code{1}.}
 
 \item{return_details}{Logical. If \code{FALSE}, return only the facet-candidate
-data frame. If \code{TRUE}, return a list with candidates, membership, converged
-coordinates, and parameter metadata.}
+data frame. If \code{TRUE}, additionally return point membership, converged
+coordinates, and algorithm parameters. Default: \code{FALSE}.}
 
-\item{verbose}{Logical. If \code{TRUE}, print progress messages.}
+\item{verbose}{Logical. If \code{TRUE}, print progress information. Default:
+\code{FALSE}.}
 }
 \value{
-If \code{return_details = FALSE}, a data frame with one row per facet
-candidate. If \code{return_details = TRUE}, a list containing candidates,
-membership, and parameter metadata.
+If \code{return_details = FALSE}, a data frame with one row per retained
+facet candidate. Candidate coordinates (\code{x}, \code{y}, \code{z}) correspond to an
+original input point. Additional columns report cluster size, selected and
+summary height values, converged mode and original centroid coordinates,
+the selected source index, and algorithm parameters. If
+\code{return_details = TRUE}, a list with \code{candidates}, \code{membership}, and
+\code{parameters}.
 }
 \description{
-This function performs a local mode-condensation step on a thresholded
-local-height point cloud. Each point repeatedly moves toward the
-height-weighted centre of neighbouring points within a local search radius.
-After convergence, points that ended close together are merged into one
-candidate group. For each group, the returned facet candidate is the
-original input point closest to the converged group mode, not an artificial
-centroid.
+Identifies facet candidates from a thresholded local-height point cloud
+using iterative, height-weighted spatial condensation. At each iteration,
+every point moves towards the height-weighted centre of neighbouring points
+within a spherical Euclidean neighbourhood. Iteration continues until the
+maximum displacement falls below a specified tolerance or the maximum
+number of iterations is reached.
 }
 \details{
-This is intended as a pre-clustering or alternative candidate-detection step
-after local-height thresholding. It avoids a full pairwise distance matrix
-and is therefore more suitable for thresholded point clouds containing many
-thousands of points.
+After condensation, converged points are grouped by complete-linkage
+clustering. A retained group therefore has a maximum pairwise separation
+no greater than \code{merge_radius}. Groups containing fewer than
+\code{min_cluster_size} input points are discarded.
+
+For each retained group, the facet candidate is selected from the original
+input points rather than from an interpolated centroid. By default, the
+original point nearest the converged weighted mode is selected;
+alternatively, the point with the greatest local-height value can be used.
+}
+\examples{
+points <- data.frame(
+  x = c(-0.2, 0, 0.2, 0, 0, 9.8, 10, 10.2, 10, 10),
+  y = c(0, 0, 0, -0.2, 0.2, 0, 0, 0, -0.2, 0.2),
+  z = 0,
+  height_value = c(1, 4, 1, 2, 2, 1, 5, 1, 2, 2)
+)
+candidates <- find_facet_candidates_condensed(
+  points,
+  neighbour_radius = 0.5,
+  merge_radius = 0.3,
+  cores = 1,
+  verbose = FALSE
+)
+candidates
+
 }
