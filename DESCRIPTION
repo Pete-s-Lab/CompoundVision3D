@@ -6,7 +6,7 @@ Description: Tools for extracting and analysing compound-eye geometry from
     sizes, calculates facet surface normals and local optical properties,
     aligns eye data to anatomical landmarks, and projects viewing directions
     onto a spherical field of view.
-Version: 0.1.0
+Version: 0.1.17
 License: MIT + file LICENSE
 URL: https://github.com/Pete-s-Lab/CV3D
 BugReports: https://github.com/Pete-s-Lab/CV3D/issues

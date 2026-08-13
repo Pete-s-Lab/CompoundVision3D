@@ -83,10 +83,52 @@ empty angular sector in the local tangent plane, and conservative
 angle-shadow pruning for already detected edge facets.
 }
 \details{
-Edge facets are not forced to a predetermined degree. Instead, the local
-geometry is allowed to yield the natural number of retained neighbours, up
-to \code{k}. Angle-shadow pruning is applied only to facets already classified as
-edge facets and removes a farther candidate only when it points in nearly
-the same tangent-plane direction as a substantially nearer retained
-neighbour.
+The method is designed for an approximately first-ring compound-eye lattice
+in which interior facets may have up to \code{k} direct neighbours but facets at
+the sampled eye boundary should not be filled artificially with second-ring
+neighbours. It proceeds in the following stages:
+\enumerate{
+\item Local tangent geometry and the largest angular gap are calculated as in
+\code{\link[=detect_facet_edges]{detect_facet_edges()}}. Facets with a gap strictly greater than
+\code{edge_gap_threshold_deg} are flagged as edge facets.
+\item Candidate links are restricted to reciprocal \code{k}-nearest-neighbour
+membership: facet A must be among facet B's first \code{k} candidates and vice
+versa. This prevents one-sided long links.
+\item A robust local core spacing is calculated for every facet as the median
+distance to its \code{core_k} closest facet centres. Reciprocal links are kept
+only if their 3D length is no greater than \code{interior_link_factor} times
+the larger endpoint core spacing for an interior-interior link, or
+\code{edge_link_factor} times that spacing when either endpoint is an edge.
+\item CV3D derives an angular-shadow cutoff from the typical angular separation
+of retained neighbours at six-neighbour interior facets. The median
+reference separation is multiplied by \code{shadow_angle_fraction} and then
+constrained to \code{shadow_angle_min_deg}--\code{shadow_angle_max_deg}.
+\item Only at already detected edge facets, two retained neighbours that point
+in nearly the same local tangent-plane direction are treated as a
+possible first-ring/second-ring conflict. The farther candidate is pruned
+only when it is at least \code{shadow_radial_ratio} times farther away. Links
+are removed reciprocally, and pruning never reduces the focal facet below
+\code{shadow_min_remaining} retained neighbours.
+}
+
+Edge facets are not forced to a predetermined neighbour count and there is
+no refill stage. The resulting degree is therefore allowed to reflect the
+available geometry naturally, with \code{k} acting as a maximum. The stored
+\code{number_of_neighbours} column is intended both for downstream calculations
+and for QC of the boundary solution.
+
+The \code{neighbours} column contains semicolon-separated facet IDs. The
+\code{neighbour_core_spacing_um} column is in µm. Attributes on the returned data
+frame record the derived shadow cutoff, its interior reference statistics,
+the individual removed shadow links, and the method identifier so that the
+exact neighbour construction can be traced downstream.
+}
+\examples{
+data(cv3d_example_facets)
+nb <- find_neighbours_edge_aware(
+  cv3d_example_facets,
+  edge_gap_threshold_deg = 90
+)
+head(nb[, c("ID", "neighbours", "number_of_neighbours", "is_edge_facet")])
+
 }

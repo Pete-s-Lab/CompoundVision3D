@@ -16,8 +16,38 @@
 #' @param knn_search Positive integer. Number of nearest neighbours retained for
 #'   local calculations. Default: `20`.
 #'
-#' @return A data frame with `ID`, `edge_angular_gap_deg`, and
-#'   `is_edge_facet`.
+#' @details
+#' This function performs edge classification only; it does not assign or
+#' remove facet-neighbour links. For each focal facet, CV3D first estimates a
+#' local tangent plane from the focal facet and its nearby facet centres. The
+#' `k` closest candidate centres are projected into that plane and converted to
+#' polar angles. After sorting those angles around 360 degrees, the largest
+#' circular gap - including the wrap-around gap - is stored as
+#' `edge_angular_gap_deg`.
+#'
+#' A well-surrounded interior facet normally has candidate directions covering
+#' the full circle, whereas a boundary facet has a conspicuous unsampled
+#' sector. A facet is therefore classified as an edge when its largest gap is
+#' strictly greater than `gap_threshold_deg`. The threshold is deliberately an
+#' explicit QC parameter rather than an automatically fitted biological
+#' boundary. The CV3D UI can compare several thresholds before the final
+#' neighbour graph is generated.
+#'
+#' The tangent plane is obtained by singular-value decomposition of the local
+#' centred coordinate cloud. Consequently, edge detection is based on local 3D
+#' geometry rather than on any particular global eye orientation. Translation
+#' and rigid rotation of the eye do not change the angular-gap criterion.
+#' Coordinates are assumed to be in micrometres (µm), as elsewhere in CV3D,
+#' although the reported angular gap itself is dimensionless and expressed in
+#' degrees.
+#'
+#' @return A data frame with one row per input facet and columns `ID`,
+#'   `edge_angular_gap_deg`, and `is_edge_facet`. Input row order is preserved.
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' edge_qc <- detect_facet_edges(cv3d_example_facets, gap_threshold_deg = 90)
+#' table(edge_qc$is_edge_facet)
 #'
 #' @export
 detect_facet_edges <- function(df,
@@ -82,12 +112,44 @@ detect_facet_edges <- function(df,
 #' @param verbose Logical. Print a short method summary. Default: `FALSE`.
 #'
 #' @details
-#' Edge facets are not forced to a predetermined degree. Instead, the local
-#' geometry is allowed to yield the natural number of retained neighbours, up
-#' to `k`. Angle-shadow pruning is applied only to facets already classified as
-#' edge facets and removes a farther candidate only when it points in nearly
-#' the same tangent-plane direction as a substantially nearer retained
-#' neighbour.
+#' The method is designed for an approximately first-ring compound-eye lattice
+#' in which interior facets may have up to `k` direct neighbours but facets at
+#' the sampled eye boundary should not be filled artificially with second-ring
+#' neighbours. It proceeds in the following stages:
+#'
+#' 1. Local tangent geometry and the largest angular gap are calculated as in
+#'    [detect_facet_edges()]. Facets with a gap strictly greater than
+#'    `edge_gap_threshold_deg` are flagged as edge facets.
+#' 2. Candidate links are restricted to reciprocal `k`-nearest-neighbour
+#'    membership: facet A must be among facet B's first `k` candidates and vice
+#'    versa. This prevents one-sided long links.
+#' 3. A robust local core spacing is calculated for every facet as the median
+#'    distance to its `core_k` closest facet centres. Reciprocal links are kept
+#'    only if their 3D length is no greater than `interior_link_factor` times
+#'    the larger endpoint core spacing for an interior-interior link, or
+#'    `edge_link_factor` times that spacing when either endpoint is an edge.
+#' 4. CV3D derives an angular-shadow cutoff from the typical angular separation
+#'    of retained neighbours at six-neighbour interior facets. The median
+#'    reference separation is multiplied by `shadow_angle_fraction` and then
+#'    constrained to `shadow_angle_min_deg`--`shadow_angle_max_deg`.
+#' 5. Only at already detected edge facets, two retained neighbours that point
+#'    in nearly the same local tangent-plane direction are treated as a
+#'    possible first-ring/second-ring conflict. The farther candidate is pruned
+#'    only when it is at least `shadow_radial_ratio` times farther away. Links
+#'    are removed reciprocally, and pruning never reduces the focal facet below
+#'    `shadow_min_remaining` retained neighbours.
+#'
+#' Edge facets are not forced to a predetermined neighbour count and there is
+#' no refill stage. The resulting degree is therefore allowed to reflect the
+#' available geometry naturally, with `k` acting as a maximum. The stored
+#' `number_of_neighbours` column is intended both for downstream calculations
+#' and for QC of the boundary solution.
+#'
+#' The `neighbours` column contains semicolon-separated facet IDs. The
+#' `neighbour_core_spacing_um` column is in µm. Attributes on the returned data
+#' frame record the derived shadow cutoff, its interior reference statistics,
+#' the individual removed shadow links, and the method identifier so that the
+#' exact neighbour construction can be traced downstream.
 #'
 #' @return The input data with additional columns `neighbours`,
 #'   `number_of_neighbours`, `is_edge_facet`, `edge_angular_gap_deg`,
@@ -95,6 +157,14 @@ detect_facet_edges <- function(df,
 #'   `shadow_links_removed`. The returned object has attributes
 #'   `shadow_angle_threshold_deg`, `shadow_removed_links`, and
 #'   `neighbour_method`.
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' nb <- find_neighbours_edge_aware(
+#'   cv3d_example_facets,
+#'   edge_gap_threshold_deg = 90
+#' )
+#' head(nb[, c("ID", "neighbours", "number_of_neighbours", "is_edge_facet")])
 #'
 #' @export
 find_neighbours_edge_aware <- function(df,

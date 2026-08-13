@@ -35,11 +35,42 @@ the local tangent plane. Default: \code{12}.}
 local calculations. Default: \code{20}.}
 }
 \value{
-A data frame with \code{ID}, \code{edge_angular_gap_deg}, and
-\code{is_edge_facet}.
+A data frame with one row per input facet and columns \code{ID},
+\code{edge_angular_gap_deg}, and \code{is_edge_facet}. Input row order is preserved.
 }
 \description{
 Detects facets at the boundary of a sampled compound-eye surface from the
 largest empty angular sector around each facet in a local tangent plane.
 Coordinates are assumed to be in micrometres (µm), consistent with CV3D.
+}
+\details{
+This function performs edge classification only; it does not assign or
+remove facet-neighbour links. For each focal facet, CV3D first estimates a
+local tangent plane from the focal facet and its nearby facet centres. The
+\code{k} closest candidate centres are projected into that plane and converted to
+polar angles. After sorting those angles around 360 degrees, the largest
+circular gap - including the wrap-around gap - is stored as
+\code{edge_angular_gap_deg}.
+
+A well-surrounded interior facet normally has candidate directions covering
+the full circle, whereas a boundary facet has a conspicuous unsampled
+sector. A facet is therefore classified as an edge when its largest gap is
+strictly greater than \code{gap_threshold_deg}. The threshold is deliberately an
+explicit QC parameter rather than an automatically fitted biological
+boundary. The CV3D UI can compare several thresholds before the final
+neighbour graph is generated.
+
+The tangent plane is obtained by singular-value decomposition of the local
+centred coordinate cloud. Consequently, edge detection is based on local 3D
+geometry rather than on any particular global eye orientation. Translation
+and rigid rotation of the eye do not change the angular-gap criterion.
+Coordinates are assumed to be in micrometres (µm), as elsewhere in CV3D,
+although the reported angular gap itself is dimensionless and expressed in
+degrees.
+}
+\examples{
+data(cv3d_example_facets)
+edge_qc <- detect_facet_edges(cv3d_example_facets, gap_threshold_deg = 90)
+table(edge_qc$is_edge_facet)
+
 }

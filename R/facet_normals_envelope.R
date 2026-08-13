@@ -4,7 +4,12 @@
 #' cloud and estimates one outward unit normal per facet from an area- and
 #' distance-weighted average of nearby envelope-face normals.
 #'
-#' The envelope topology is derived directly from facet positions. Each facet
+#' @details
+#' The envelope estimator is independent of the optical-neighbour graph used
+#' downstream. Its geometry is constructed directly from the facet-centre point
+#' cloud in four stages.
+#'
+#' **1. Envelope topology.** Each facet
 #' is linked to its six nearest facet centres, only reciprocal links are
 #' retained, and triangular three-cliques of that graph are used as candidate
 #' envelope faces. Candidate faces are rejected when any edge is longer than
@@ -12,19 +17,33 @@
 #' prevents long bridging faces across gaps while keeping the construction
 #' independent of the optical-neighbour graph used downstream.
 #'
-#' Before normals are calculated, the envelope vertices undergo five fixed
+#' **2. Surface regularisation.** Before normals are calculated, the envelope
+#' vertices undergo five fixed
 #' Taubin-style smoothing cycles (lambda = 0.30, mu = -0.31), which suppress
 #' high-frequency positional noise while limiting shrinkage of the eye surface.
 #'
-#' For each facet, local facet spacing is the median distance to its six nearest
+#' **3. Local normal estimation.** For each facet, local facet spacing is the
+#' median distance to its six nearest
 #' facet centres (or all available neighbours when fewer than six exist). The
 #' `envelope_factor` multiplies this spacing to define the Gaussian distance
 #' scale (sigma) used to weight envelope-face normals. Face weights are
 #' proportional to face area times `exp(-0.5 * (distance / sigma)^2)` and are
 #' truncated at 2.5 sigma. No subsequent neighbour-normal averaging is applied.
 #'
+#' **4. Orientation and output.** Weighted normals are normalised to unit length
+#' and oriented outward relative to the arithmetic centroid of the facet-centre
+#' cloud. No subsequent neighbour-normal averaging is applied. If no envelope
+#' face lies inside the truncated Gaussian support for a facet, the nearest
+#' envelope face provides a conservative fallback direction.
+#'
 #' CV3D currently assumes all coordinates are in micrometres (µm). Consequently
 #' the returned support scales are also in µm.
+#'
+#' The default `envelope_factor = 1.25` is the current CV3D/UI working default.
+#' Smaller factors weight a more local patch of the reconstructed envelope;
+#' larger factors average over a broader surface patch. The triangle-based
+#' [get_facet_normals()] estimator remains available for method comparison and
+#' sensitivity analyses.
 #'
 #' @param df Data frame or tibble containing facet centres. Required columns are
 #'   `ID`, `x`, `y`, and `z`.
@@ -38,11 +57,12 @@
 #'   `normal_support_scale_um`, `normal_weight_cutoff_um`, and
 #'   `normal_support_face_count`.
 #'
-#' @details
-#' The triangle-based [get_facet_normals()] estimator remains available as an
-#' alternative for method comparison and sensitivity analyses.
-#'
 #' @seealso [get_facet_normals()]
+#'
+#' @examples
+#' data(cv3d_example_facets)
+#' nrm <- get_facet_normals_envelope(cv3d_example_facets, envelope_factor = 1.25)
+#' head(nrm[, c("ID", "norm.x", "norm.y", "norm.z")])
 #'
 #' @export
 get_facet_normals_envelope <- function(df,
