@@ -10,7 +10,7 @@ find_neighbours(
   y = "y",
   z = "z",
   id = "ID",
-  center = TRUE,
+  tangent_k = 12,
   k_local = 6,
   knn_search = 20,
   edge_tol = 0.5,
@@ -33,23 +33,25 @@ find_neighbours(
 \item{id}{Character. Name of the column containing unique facet identifiers.
 Default: \code{"ID"}.}
 
-\item{center}{Logical. If \code{TRUE}, centre the point cloud on its coordinate
-centroid before projecting points onto the unit sphere. Default: \code{TRUE}.}
+\item{tangent_k}{Integer. Number of nearby facets used, in addition to the
+focal facet, to estimate and triangulate each local tangent plane.
+Default: \code{12}.}
 
-\item{k_local}{Integer. Number of nearest angular neighbours used to
-estimate the local facet spacing. Default: \code{6}.}
+\item{k_local}{Integer. Number of nearest Euclidean neighbours used to
+estimate local facet spacing. Default: \code{6}.}
 
-\item{knn_search}{Integer. Number of nearest angular neighbours retained as
-candidates for supplementing facets with too few triangulation
-neighbours. Default: \code{20}.}
+\item{knn_search}{Integer. Number of nearest Euclidean neighbours retained
+as candidates for tangent-plane construction and for supplementing facets
+with too few triangulation neighbours. Must be at least \code{tangent_k} and
+\code{k_local}. Default: \code{20}.}
 
-\item{edge_tol}{Numeric. Relative tolerance for retaining triangulation
-edges. An edge is retained when its angular length does not exceed
+\item{edge_tol}{Numeric. Relative tolerance for retaining candidate edges.
+An edge is retained when its Euclidean length does not exceed
 \code{(1 + edge_tol)} times the larger local-spacing estimate of its two
 endpoints. Default: \code{0.5}.}
 
-\item{min_neighbours}{Integer. Minimum number of neighbours targeted by
-the nearest-neighbour fallback for sparse facets. Default: \code{3}.}
+\item{min_neighbours}{Integer. Minimum number of neighbours targeted by the
+nearest-neighbour fallback for sparse facets. Default: \code{3}.}
 
 \item{max_neighbours}{Integer or \code{NULL}. Maximum number of reciprocal
 neighbours retained for each facet. If \code{NULL}, no maximum is applied.
@@ -64,16 +66,30 @@ B, facet B also lists facet A.
 }
 \description{
 Identifies likely neighbouring facets from their three-dimensional
-positions. Facet coordinates are projected onto a unit sphere, so
-neighbourhood relationships are evaluated by angular rather than Cartesian
-distance.
+positions using local tangent-plane geometry.
 }
 \details{
-Candidate neighbour links are obtained from a convex-hull triangulation of
-the normalized facet positions. Links that are long relative to the local
-angular facet spacing are removed. Facets with too few remaining neighbours
-are supplemented with their nearest angular neighbours, and the number of
-neighbours can optionally be limited.
+For each focal facet, nearby facet centres are used to estimate a local
+best-fit surface plane. The local points are projected into that plane and
+triangulated in two dimensions. Candidate links touching the focal facet are
+collected across all local triangulations and filtered by their
+three-dimensional Euclidean length relative to the local facet spacing.
+
+This local construction avoids assuming that the complete eye follows a
+sphere or that its global coordinate centroid is a centre of curvature.
+Facets with too few remaining neighbours are supplemented with nearby
+Euclidean neighbours, and reciprocal relationships are enforced throughout.
+
+The local tangent plane is estimated by singular-value decomposition of the
+centred local coordinates. The first two right-singular vectors span the
+best-fit plane. A two-dimensional Delaunay triangulation is then calculated
+within that plane, and only triangulation edges incident to the focal facet
+are retained as local candidate links.
+
+Candidate edges are filtered in the original three-dimensional coordinate
+system, rather than in the tangent-plane projection. CV3D therefore uses
+local surface topology to propose neighbours while retaining true
+centre-to-centre spacing for distance filtering.
 }
 \examples{
 data(cv3d_example_facets)

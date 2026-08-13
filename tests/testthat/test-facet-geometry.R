@@ -5,15 +5,23 @@ parse_neighbour_ids <- function(x) {
 
 
 test_that("find_neighbours returns valid bounded neighbour lists", {
+  # Use an irregular shallow surface patch. A perfectly symmetric synthetic
+  # configuration can be degenerate for local 2D Delaunay triangulation and
+  # trigger a Qhull warning that is unrelated to the behaviour tested here.
+  x <- c(-1.2, -0.4, 0.5, 1.3, -1.0, -0.1, 0.9, 0.2)
+  y <- c(-0.8, -1.1, -0.7, -0.2, 0.4, 0.8, 0.6, 1.4)
+
   facets <- data.frame(
     ID = as.character(seq_len(8)),
-    x = c(1, -1, 0, 0, 0, 0, 1, -1),
-    y = c(0, 0, 1, -1, 0, 0, 1, -1),
-    z = c(0, 0, 0, 0, 1, -1, 1, -1)
+    x = x,
+    y = y,
+    z = 0.08 * x^2 + 0.05 * y^2 +
+      c(0, 0.01, -0.01, 0.02, -0.01, 0.01, 0, -0.015)
   )
 
   result <- find_neighbours(
     facets,
+    tangent_k = 4,
     k_local = 3,
     knn_search = 5,
     max_neighbours = 3
@@ -112,10 +120,60 @@ test_that("find_neighbours exposes a minimum-neighbour fallback", {
 })
 
 
-test_that("find_neighbours validates discrete and logical control parameters", {
+test_that("find_neighbours validates local-neighbour control parameters", {
   data("cv3d_example_facets", package = "CV3D")
-  expect_error(find_neighbours(cv3d_example_facets, center = NA), "center")
+  expect_equal(formals(find_neighbours)$tangent_k, 12)
+  expect_error(find_neighbours(cv3d_example_facets, tangent_k = 2.5), "positive integer")
   expect_error(find_neighbours(cv3d_example_facets, k_local = 2.5), "positive integer")
   expect_error(find_neighbours(cv3d_example_facets, knn_search = Inf), "positive integer")
+  expect_error(
+    find_neighbours(cv3d_example_facets, tangent_k = 12, knn_search = 10),
+    ">= tangent_k"
+  )
   expect_error(find_neighbours(cv3d_example_facets, max_neighbours = 3.5), "positive integer")
+})
+
+
+test_that("find_neighbours preserves local topology under strong depth flattening", {
+  rows <- 0:6
+  cols <- 0:6
+  grid <- expand.grid(col = cols, row = rows)
+
+  grid$x <- grid$col + 0.5 * (grid$row %% 2)
+  grid$y <- grid$row * sqrt(3) / 2
+  grid$z <- 0.03 * (grid$x - mean(grid$x))^2 +
+    0.02 * (grid$y - mean(grid$y))^2
+  grid$ID <- sprintf("F%03d", seq_len(nrow(grid)))
+
+  original <- find_neighbours(
+    grid,
+    tangent_k = 12,
+    k_local = 6,
+    knn_search = 20,
+    edge_tol = 0.5,
+    min_neighbours = 3,
+    max_neighbours = 6
+  )
+
+  flattened_grid <- grid
+  flattened_grid$z <- flattened_grid$z * 0.1
+
+  flattened <- find_neighbours(
+    flattened_grid,
+    tangent_k = 12,
+    k_local = 6,
+    knn_search = 20,
+    edge_tol = 0.5,
+    min_neighbours = 3,
+    max_neighbours = 6
+  )
+
+  focal <- which(grid$row == 3 & grid$col == 3)
+  expect_length(focal, 1)
+  expect_equal(original$number_of_neighbours[focal], 6)
+  expect_equal(flattened$number_of_neighbours[focal], 6)
+  expect_setequal(
+    parse_neighbour_ids(original$neighbours[focal]),
+    parse_neighbour_ids(flattened$neighbours[focal])
+  )
 })

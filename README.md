@@ -10,7 +10,7 @@ CV3D provides functions to:
 - calculate local surface heights;
 - condense thresholded surface-height points into facet candidates;
 - identify neighbouring facets and estimate facet size;
-- estimate facet surface normals;
+- estimate facet surface normals either from the original local triangle method or from a regularised facet-centre envelope;
 - calculate local inter-facet angles, eye parameter, sampling frequency, and anatomical acuity estimates;
 - align eye data to anatomical landmarks;
 - create standardised face-on 2D or 3D eye views for visualisation and QC; and
@@ -42,6 +42,8 @@ facet_sizes <- calculate_facet_size(facets)
 
 head(facet_sizes)
 ```
+
+`find_neighbours()` estimates facet adjacency from local tangent-plane geometry rather than projecting the complete eye onto a sphere. Neighbour detection therefore does not require a global spherical eye model or a global centre of curvature.
 
 For standardised face-on QC and comparison plots, `view_eye_face_on()` can display centred eye clouds in base R or, when installed, `rgl`. Added comparison clouds can be positioned in units of the reference eye's width or height, for example `translate_x = 1.1`.
 

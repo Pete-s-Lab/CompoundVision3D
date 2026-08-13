@@ -38,15 +38,18 @@ vector_angle <- function(a, b, unit = c("radians", "degrees")) {
 #' Identify Neighbouring Facets
 #'
 #' Identifies likely neighbouring facets from their three-dimensional
-#' positions. Facet coordinates are projected onto a unit sphere, so
-#' neighbourhood relationships are evaluated by angular rather than Cartesian
-#' distance.
+#' positions using local tangent-plane geometry.
 #'
-#' Candidate neighbour links are obtained from a convex-hull triangulation of
-#' the normalized facet positions. Links that are long relative to the local
-#' angular facet spacing are removed. Facets with too few remaining neighbours
-#' are supplemented with their nearest angular neighbours, and the number of
-#' neighbours can optionally be limited.
+#' For each focal facet, nearby facet centres are used to estimate a local
+#' best-fit surface plane. The local points are projected into that plane and
+#' triangulated in two dimensions. Candidate links touching the focal facet are
+#' collected across all local triangulations and filtered by their
+#' three-dimensional Euclidean length relative to the local facet spacing.
+#'
+#' This local construction avoids assuming that the complete eye follows a
+#' sphere or that its global coordinate centroid is a centre of curvature.
+#' Facets with too few remaining neighbours are supplemented with nearby
+#' Euclidean neighbours, and reciprocal relationships are enforced throughout.
 #'
 #' @param df A data frame or tibble containing one row per facet.
 #' @param x Character. Name of the column containing x coordinates. Default:
@@ -57,22 +60,36 @@ vector_angle <- function(a, b, unit = c("radians", "degrees")) {
 #'   `"z"`.
 #' @param id Character. Name of the column containing unique facet identifiers.
 #'   Default: `"ID"`.
-#' @param center Logical. If `TRUE`, centre the point cloud on its coordinate
-#'   centroid before projecting points onto the unit sphere. Default: `TRUE`.
-#' @param k_local Integer. Number of nearest angular neighbours used to
-#'   estimate the local facet spacing. Default: `6`.
-#' @param knn_search Integer. Number of nearest angular neighbours retained as
-#'   candidates for supplementing facets with too few triangulation
-#'   neighbours. Default: `20`.
-#' @param edge_tol Numeric. Relative tolerance for retaining triangulation
-#'   edges. An edge is retained when its angular length does not exceed
+#' @param tangent_k Integer. Number of nearby facets used, in addition to the
+#'   focal facet, to estimate and triangulate each local tangent plane.
+#'   Default: `12`.
+#' @param k_local Integer. Number of nearest Euclidean neighbours used to
+#'   estimate local facet spacing. Default: `6`.
+#' @param knn_search Integer. Number of nearest Euclidean neighbours retained
+#'   as candidates for tangent-plane construction and for supplementing facets
+#'   with too few triangulation neighbours. Must be at least `tangent_k` and
+#'   `k_local`. Default: `20`.
+#' @param edge_tol Numeric. Relative tolerance for retaining candidate edges.
+#'   An edge is retained when its Euclidean length does not exceed
 #'   `(1 + edge_tol)` times the larger local-spacing estimate of its two
 #'   endpoints. Default: `0.5`.
-#' @param min_neighbours Integer. Minimum number of neighbours targeted by
-#'   the nearest-neighbour fallback for sparse facets. Default: `3`.
+#' @param min_neighbours Integer. Minimum number of neighbours targeted by the
+#'   nearest-neighbour fallback for sparse facets. Default: `3`.
 #' @param max_neighbours Integer or `NULL`. Maximum number of reciprocal
 #'   neighbours retained for each facet. If `NULL`, no maximum is applied.
 #'   Default: `6`.
+#'
+#' @details
+#' The local tangent plane is estimated by singular-value decomposition of the
+#' centred local coordinates. The first two right-singular vectors span the
+#' best-fit plane. A two-dimensional Delaunay triangulation is then calculated
+#' within that plane, and only triangulation edges incident to the focal facet
+#' are retained as local candidate links.
+#'
+#' Candidate edges are filtered in the original three-dimensional coordinate
+#' system, rather than in the tangent-plane projection. CV3D therefore uses
+#' local surface topology to propose neighbours while retaining true
+#' centre-to-centre spacing for distance filtering.
 #'
 #' @return The input data with two additional columns: `neighbours`, containing
 #'   the IDs of neighbouring facets separated by `"; "`, and
@@ -89,7 +106,7 @@ vector_angle <- function(a, b, unit = c("radians", "degrees")) {
 find_neighbours <- function(df,
                             x = "x", y = "y", z = "z",
                             id = "ID",
-                            center = TRUE,
+                            tangent_k = 12,
                             k_local = 6,
                             knn_search = 20,
                             edge_tol = 0.5,
@@ -100,23 +117,32 @@ find_neighbours <- function(df,
     stop("Missing required coordinate or ID columns.", call. = FALSE)
   }
   if (anyDuplicated(df[[id]]) > 0) stop("IDs must be unique.", call. = FALSE)
-  if (!is.logical(center) || length(center) != 1 || is.na(center)) {
-    stop("center must be TRUE or FALSE.", call. = FALSE)
+
+  validate_positive_integer <- function(value, name) {
+    if (!is.numeric(value) || length(value) != 1 || !is.finite(value) ||
+        value < 1 || value != as.integer(value)) {
+      stop(name, " must be a positive integer.", call. = FALSE)
+    }
+    as.integer(value)
   }
-  if (!is.numeric(k_local) || length(k_local) != 1 || !is.finite(k_local) ||
-      k_local < 1 || k_local != as.integer(k_local)) {
-    stop("k_local must be a positive integer.", call. = FALSE)
+
+  tangent_k <- validate_positive_integer(tangent_k, "tangent_k")
+  k_local <- validate_positive_integer(k_local, "k_local")
+  knn_search <- validate_positive_integer(knn_search, "knn_search")
+
+  if (knn_search < tangent_k) {
+    stop("knn_search must be >= tangent_k.", call. = FALSE)
   }
-  if (!is.numeric(knn_search) || length(knn_search) != 1 || !is.finite(knn_search) ||
-      knn_search < 1 || knn_search != as.integer(knn_search)) {
-    stop("knn_search must be a positive integer.", call. = FALSE)
+  if (knn_search < k_local) {
+    stop("knn_search must be >= k_local.", call. = FALSE)
   }
-  if (knn_search < k_local) stop("knn_search must be >= k_local.", call. = FALSE)
-  if (!is.numeric(edge_tol) || length(edge_tol) != 1 || !is.finite(edge_tol) || edge_tol < 0) {
+  if (!is.numeric(edge_tol) || length(edge_tol) != 1 ||
+      !is.finite(edge_tol) || edge_tol < 0) {
     stop("edge_tol must be a single finite number >= 0.", call. = FALSE)
   }
   if (!is.numeric(min_neighbours) || length(min_neighbours) != 1 ||
-      !is.finite(min_neighbours) || min_neighbours < 0 || min_neighbours != as.integer(min_neighbours)) {
+      !is.finite(min_neighbours) || min_neighbours < 0 ||
+      min_neighbours != as.integer(min_neighbours)) {
     stop("min_neighbours must be a non-negative integer.", call. = FALSE)
   }
   if (!is.null(max_neighbours) &&
@@ -125,86 +151,135 @@ find_neighbours <- function(df,
        max_neighbours != as.integer(max_neighbours))) {
     stop("max_neighbours must be NULL or a positive integer.", call. = FALSE)
   }
+
   min_neighbours <- as.integer(min_neighbours)
-  k_local <- as.integer(k_local)
-  knn_search <- as.integer(knn_search)
-  if (!is.null(max_neighbours) && min_neighbours > max_neighbours) {
-    stop("min_neighbours cannot exceed max_neighbours.", call. = FALSE)
+  if (!is.null(max_neighbours)) {
+    max_neighbours <- as.integer(max_neighbours)
+    if (min_neighbours > max_neighbours) {
+      stop("min_neighbours cannot exceed max_neighbours.", call. = FALSE)
+    }
   }
 
   pts <- as.matrix(df[, c(x, y, z), drop = FALSE])
   storage.mode(pts) <- "double"
-  if (nrow(pts) < 4) stop("At least four facet positions are required.", call. = FALSE)
-  if (any(!is.finite(pts))) stop("Facet coordinates must be finite.", call. = FALSE)
+
+  if (nrow(pts) < 4) {
+    stop("At least four facet positions are required.", call. = FALSE)
+  }
+  if (any(!is.finite(pts))) {
+    stop("Facet coordinates must be finite.", call. = FALSE)
+  }
 
   n <- nrow(pts)
-  if (center) pts <- sweep(pts, 2, colMeans(pts), "-")
+  knn_eff <- min(knn_search, n - 1L)
+  tangent_eff <- min(tangent_k, knn_eff)
+  k_local_eff <- min(k_local, knn_eff)
 
-  norms <- sqrt(rowSums(pts^2))
-  if (any(norms == 0)) stop("Some points have zero norm after centering; cannot normalize.", call. = FALSE)
-  u <- pts / norms
-
-  ang_dist <- function(ui, uj) {
-    d <- sum(ui * uj)
-    d <- max(min(d, 1), -1)
-    acos(d)
+  if (tangent_eff < 3L) {
+    stop("At least three nearby facets are required to estimate a local tangent plane.", call. = FALSE)
   }
 
-  knn_eff <- min(as.integer(knn_search), n - 1L)
-  k_local_eff <- min(as.integer(k_local), knn_eff)
-  nn <- RANN::nn2(u, u, k = knn_eff + 1L)
+  nn <- RANN::nn2(pts, pts, k = knn_eff + 1L)
   idx <- nn$nn.idx[, -1, drop = FALSE]
-  dch <- nn$nn.dists[, -1, drop = FALSE]
-  dang <- 2 * asin(pmin(dch / 2, 1))
+  dst <- nn$nn.dists[, -1, drop = FALSE]
 
-  local_scale <- apply(dang[, seq_len(k_local_eff), drop = FALSE], 1, stats::median, na.rm = TRUE)
-
-  tri <- geometry::convhulln(u, options = "Qt")
-  if (is.null(tri) || nrow(tri) == 0) stop("convhulln failed (degenerate point set?).", call. = FALSE)
-
-  edge_pairs <- function(a, b) cbind(pmin(a, b), pmax(a, b))
-  e <- rbind(
-    edge_pairs(tri[, 1], tri[, 2]),
-    edge_pairs(tri[, 2], tri[, 3]),
-    edge_pairs(tri[, 3], tri[, 1])
+  local_scale <- apply(
+    dst[, seq_len(k_local_eff), drop = FALSE],
+    1,
+    stats::median,
+    na.rm = TRUE
   )
-  e <- unique(e)
-  colnames(e) <- c("i", "j")
 
-  keep <- logical(nrow(e))
-  for (k in seq_len(nrow(e))) {
-    i <- e[k, "i"]
-    j <- e[k, "j"]
-    threshold <- (1 + edge_tol) * max(local_scale[i], local_scale[j])
-    keep[k] <- ang_dist(u[i, ], u[j, ]) <= threshold
+  edge_list <- vector("list", n)
+
+  for (i in seq_len(n)) {
+    local_idx <- c(i, idx[i, seq_len(tangent_eff)])
+    local_pts <- pts[local_idx, , drop = FALSE]
+    local_centred <- sweep(local_pts, 2, colMeans(local_pts), "-")
+
+    local_svd <- tryCatch(
+      base::svd(local_centred),
+      error = function(e) NULL
+    )
+    if (is.null(local_svd) || ncol(local_svd$v) < 2L) next
+
+    plane_basis <- local_svd$v[, 1:2, drop = FALSE]
+    projected <- local_centred %*% plane_basis
+
+    tri <- tryCatch(
+      geometry::delaunayn(projected),
+      error = function(e) NULL
+    )
+    if (is.null(tri) || length(tri) == 0) next
+    if (is.null(dim(tri))) tri <- matrix(tri, nrow = 1L)
+
+    focal_rows <- apply(tri, 1, function(v) any(v == 1L))
+    if (!any(focal_rows)) next
+
+    local_neighbours <- unique(as.vector(tri[focal_rows, , drop = FALSE]))
+    local_neighbours <- local_neighbours[local_neighbours != 1L]
+    if (length(local_neighbours) == 0) next
+
+    global_neighbours <- local_idx[local_neighbours]
+    edge_list[[i]] <- cbind(
+      i = rep(i, length(global_neighbours)),
+      j = global_neighbours
+    )
   }
-  e <- e[keep, , drop = FALSE]
+
+  edges <- do.call(rbind, edge_list)
+
+  if (is.null(edges) || nrow(edges) == 0) {
+    edges <- matrix(integer(0), ncol = 2)
+    colnames(edges) <- c("i", "j")
+  } else {
+    edges <- cbind(
+      i = pmin(edges[, "i"], edges[, "j"]),
+      j = pmax(edges[, "i"], edges[, "j"])
+    )
+    edges <- unique(edges[edges[, "i"] != edges[, "j"], , drop = FALSE])
+  }
+
+  edge_distance <- function(i, j) {
+    sqrt(sum((pts[i, ] - pts[j, ])^2))
+  }
+
+  if (nrow(edges) > 0) {
+    keep <- logical(nrow(edges))
+
+    for (k in seq_len(nrow(edges))) {
+      i <- edges[k, "i"]
+      j <- edges[k, "j"]
+      threshold <- (1 + edge_tol) * max(local_scale[i], local_scale[j])
+      keep[k] <- edge_distance(i, j) <= threshold
+    }
+
+    edges <- edges[keep, , drop = FALSE]
+  }
 
   adj <- replicate(n, integer(0), simplify = FALSE)
-  if (nrow(e) > 0) {
-    for (k in seq_len(nrow(e))) {
-      i <- e[k, "i"]
-      j <- e[k, "j"]
-      adj[[i]] <- c(adj[[i]], j)
-      adj[[j]] <- c(adj[[j]], i)
+
+  if (nrow(edges) > 0) {
+    for (k in seq_len(nrow(edges))) {
+      i <- edges[k, "i"]
+      j <- edges[k, "j"]
+      adj[[i]] <- unique(c(adj[[i]], j))
+      adj[[j]] <- unique(c(adj[[j]], i))
     }
-    adj <- lapply(adj, unique)
   }
 
   minimum_neighbours <- min(min_neighbours, k_local_eff)
   if (!is.null(max_neighbours)) {
-    max_neighbours <- as.integer(max_neighbours)
     minimum_neighbours <- min(minimum_neighbours, max_neighbours)
   }
 
-  # Supplement sparse triangulation regions with nearest angular neighbours.
-  # Every added relationship is inserted in both directions.
+  # Supplement sparse local triangulations with nearest Euclidean neighbours.
   for (i in seq_len(n)) {
     if (length(adj[[i]]) < minimum_neighbours) {
-      cand <- idx[i, ]
-      for (j in cand) {
+      for (j in idx[i, ]) {
         if (length(adj[[i]]) >= minimum_neighbours) break
         if (j == i || j %in% adj[[i]]) next
+
         adj[[i]] <- c(adj[[i]], j)
         adj[[j]] <- unique(c(adj[[j]], i))
       }
@@ -212,8 +287,6 @@ find_neighbours <- function(df,
   }
 
   if (!is.null(max_neighbours)) {
-    edge_length <- function(i, j) ang_dist(u[i, ], u[j, ])
-
     # Symmetrically prune the longest edges until every facet satisfies the
     # requested maximum. Prefer removals that do not leave either endpoint
     # below the fallback minimum.
@@ -227,6 +300,7 @@ find_neighbours <- function(df,
         cbind(i = i, j = adj[[i]])
       }))
       if (is.null(edge_mat) || nrow(edge_mat) == 0) break
+
       edge_mat <- cbind(
         i = pmin(edge_mat[, "i"], edge_mat[, "j"]),
         j = pmax(edge_mat[, "i"], edge_mat[, "j"])
@@ -238,31 +312,40 @@ find_neighbours <- function(df,
       candidates <- edge_mat[removable, , drop = FALSE]
       if (nrow(candidates) == 0) candidates <- edge_mat
 
-      lengths_now <- vapply(seq_len(nrow(candidates)), function(k) {
-        edge_length(candidates[k, "i"], candidates[k, "j"])
-      }, numeric(1))
-      k_remove <- which.max(lengths_now)
-      i <- candidates[k_remove, "i"]
-      j <- candidates[k_remove, "j"]
+      edge_lengths <- vapply(
+        seq_len(nrow(candidates)),
+        function(k) {
+          edge_distance(candidates[k, "i"], candidates[k, "j"])
+        },
+        numeric(1)
+      )
+
+      remove_k <- which.max(edge_lengths)
+      i <- candidates[remove_k, "i"]
+      j <- candidates[remove_k, "j"]
+
       adj[[i]] <- setdiff(adj[[i]], j)
       adj[[j]] <- setdiff(adj[[j]], i)
     }
 
-    # If pruning made a facet sparse, refill from nearest angular neighbours
-    # only where both endpoints still have capacity.
+    # Refill sparse facets where both endpoints still have capacity.
     repeat {
       degree <- lengths(adj)
       sparse <- which(degree < minimum_neighbours)
       if (length(sparse) == 0) break
+
       changed <- FALSE
 
       for (i in sparse) {
         if (length(adj[[i]]) >= minimum_neighbours ||
-            length(adj[[i]]) >= max_neighbours) next
-        cand <- idx[i, ]
-        for (j in cand) {
+            length(adj[[i]]) >= max_neighbours) {
+          next
+        }
+
+        for (j in idx[i, ]) {
           if (j == i || j %in% adj[[i]]) next
           if (length(adj[[j]]) >= max_neighbours) next
+
           adj[[i]] <- c(adj[[i]], j)
           adj[[j]] <- unique(c(adj[[j]], i))
           changed <- TRUE
@@ -276,16 +359,18 @@ find_neighbours <- function(df,
 
   adj <- lapply(adj, function(v) sort(unique(v)))
 
-
   ids <- df[[id]]
-  df$neighbours <- vapply(adj, function(v) {
-    if (length(v) == 0) return("")
-    paste(ids[v], collapse = "; ")
-  }, character(1))
+  df$neighbours <- vapply(
+    adj,
+    function(v) {
+      if (length(v) == 0) return("")
+      paste(ids[v], collapse = "; ")
+    },
+    character(1)
+  )
   df$number_of_neighbours <- lengths(adj)
   df
 }
-
 
 #' Estimate Facet Size from Neighbour Centre Spacing
 #'

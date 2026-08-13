@@ -120,7 +120,7 @@ Returned facet-candidate coordinates always correspond to actual input points ra
 
 ## Facet neighbours and facet size
 
-The checked facet-centre dataset can be used to identify likely neighbouring facets. Neighbour relationships are estimated from angular spacing after the point cloud is projected onto a unit sphere.
+The checked facet-centre dataset can be used to identify likely neighbouring facets. For each focal facet, CV3D estimates a local tangent plane from nearby facet centres, projects that local neighbourhood into two dimensions, and uses a Delaunay triangulation to propose immediate neighbours. Candidate links are then filtered by their three-dimensional centre-to-centre spacing. This avoids assuming that the complete eye is spherical or that the global eye centroid represents a centre of curvature.
 
 ```{r neighbours}
 facets <- find_neighbours(cv3d_example_facets)
@@ -144,13 +144,14 @@ facets <- merge(
 
 ## Facet surface normals
 
-Facet surface normals are estimated from the local geometry of each facet centre and its neighbours and are oriented away from the centre of the eye point cloud.
+CV3D provides two facet-normal estimators. The regularised facet-centre envelope estimator is the default in the CV3D UI. It constructs a continuous triangular envelope directly from the facet-centre positions using a reciprocal six-nearest-neighbour surface graph, applies fixed low-shrinkage surface regularisation, and estimates each outward normal as an area- and distance-weighted average of nearby envelope-face normals. The weighting scale is expressed relative to local facet spacing; the UI default is 1.25×. No additional neighbour-normal averaging is applied to envelope normals.
+
+The triangle-based estimator remains available through `get_facet_normals()`. It estimates a focal normal from triangles formed by the focal facet centre and neighbouring facet centres and then averages the focal normal with neighbouring normals. It can be selected for method comparison or sensitivity analyses.
 
 ```{r facet-normals}
-facet_normals <- get_facet_normals(
+facet_normals <- get_facet_normals_envelope(
   facets,
-  cores = 1,
-  plot_results = FALSE,
+  envelope_factor = 1.25,
   verbose = FALSE
 )
 
