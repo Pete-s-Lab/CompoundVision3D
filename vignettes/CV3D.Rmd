@@ -18,7 +18,7 @@ knitr::opts_chunk$set(
 
 ## Introduction
 
-CV3D provides the R-based quantitative components of a workflow for extracting and analysing compound-eye surface geometry from three-dimensional data. The package can be used directly in R; preprocessing, interactive inspection, and orchestration of the complete workflow are provided by the CV3D UI.
+CV3D provides the R-based quantitative components of a workflow for extracting and analysing compound-eye surface geometry from three-dimensional data. The package can be used directly in R; preprocessing, interactive inspection, parameter selection, and orchestration of the complete workflow are provided by the CV3D UI.
 
 The examples below use reduced subsets of an adult *Drosophila melanogaster* compound eye derived from the micro-computed tomography data described by Schoborg et al. (2019):
 
@@ -28,7 +28,7 @@ The examples below use reduced subsets of an adult *Drosophila melanogaster* com
 library(CV3D)
 ```
 
-All spatial coordinates in CV3D are currently assumed to be expressed in micrometres (µm).
+All spatial coordinates in CV3D are currently assumed to be expressed in micrometres (µm). The package does not infer or convert spatial units from arbitrary input meshes.
 
 ## Example datasets
 
@@ -45,27 +45,6 @@ head(cv3d_example_facets)
 ```
 
 `cv3d_example_surface` contains triangle centres and triangle surface normals from a corneal surface mesh. `cv3d_example_thresholded` contains points retained after local-height thresholding. `cv3d_example_facets` contains checked facet-centre coordinates.
-
-## Standardised face-on viewing
-
-`view_eye_face_on()` provides a standardised visualisation without modifying the input data. The viewing direction is estimated from the mean unit surface normal, and the greater face-on coordinate range is placed along the vertical axis by a simple 90-degree in-plane rotation when necessary. No principal-component analysis is used.
-
-```{r face-on-view, fig.width=7, fig.height=6}
-eye_view <- view_eye_face_on(
-  cv3d_example_surface,
-  projection = "2D"
-)
-
-view_eye_face_on(
-  cv3d_example_surface,
-  projection = "2D",
-  add = TRUE,
-  translate_x = 1.1,
-  col = "grey50"
-)
-```
-
-Each supplied cloud is centred independently for display, so translations in the input coordinate system do not affect comparison layouts. `translate_x` and `translate_y` are expressed in units of the first/reference eye's face-on width and height, respectively; for example, `translate_x = 1.1` places the next cloud one eye-width plus a 10% gap to the right. In 2D, CV3D redraws its stored layers when necessary so the plotting region expands to include newly added clouds. Setting `projection = "3D"` uses the same centring and translation convention in an interactive `rgl` view when `rgl` is installed.
 
 ## Local surface heights
 
@@ -84,7 +63,7 @@ head(local_heights[, c("ID", "x", "y", "z", "local_height")])
 
 The neighbourhood value above is appropriate for this reduced example and should not be interpreted as a universal parameter recommendation. In a normal CV3D analysis it is chosen relative to the approximate facet size of the dataset. The scientifically appropriate neighbourhood scale remains dataset-dependent and should be large enough to represent the local eye surface rather than individual facet relief.
 
-`calculate_local_heights()` also returns `local_height_contrast`, a 0--1 peak-enhancing variable. It preserves the historical `10^local_height` transform, clips the transformed values to configurable quantiles (50th--90th percentiles by default), and rescales them to 0--1 for intuitive threshold selection. The raw `local_height` remains the geometric quantity in µm.
+`calculate_local_heights()` also returns `local_height_contrast`, a 0--1 peak-enhancing variable. It preserves the historical `10^local_height` transform, clips the transformed values to configurable quantiles, and rescales them to 0--1 for intuitive threshold selection. The raw `local_height` remains the geometric quantity in µm.
 
 Local-height normalization is optional. It rescales values relative to overlapping local neighbourhoods and can reduce spatial variation in local-height magnitude across an eye surface.
 
@@ -118,16 +97,61 @@ head(candidates)
 
 Returned facet-candidate coordinates always correspond to actual input points rather than interpolated centroids.
 
-## Facet neighbours and facet size
+## Edge detection and facet-neighbour selection
 
-The checked facet-centre dataset can be used to identify likely neighbouring facets. For each focal facet, CV3D estimates a local tangent plane from nearby facet centres, projects that local neighbourhood into two dimensions, and uses a Delaunay triangulation to propose immediate neighbours. Candidate links are then filtered by their three-dimensional centre-to-centre spacing. This avoids assuming that the complete eye is spherical or that the global eye centroid represents a centre of curvature.
+Neighbour selection is a distinct geometric step in the current CV3D workflow. The current UI uses the edge-aware method described here and stores the resulting neighbour graph before optical calculations. The older `find_neighbours()` function remains available for backward compatibility and method comparison, but it is not the preferred neighbour-selection path in the current UI workflow.
 
-```{r neighbours}
-facets <- find_neighbours(cv3d_example_facets)
-head(facets[, c("ID", "neighbours", "number_of_neighbours")])
+### Detecting the sampled eye boundary
+
+`detect_facet_edges()` identifies likely boundary facets from local angular coverage. Around each focal facet, nearby facet centres are used to estimate a local tangent plane. The six nearest candidate directions are projected into that plane and sorted by polar angle. The largest circular angular gap, including the wrap-around gap, is recorded as `edge_angular_gap_deg`.
+
+An interior facet with a complete first-ring neighbourhood normally has candidate directions distributed around the full circle. A boundary facet has a conspicuous unsampled sector. A facet is therefore classified as an edge when its largest angular gap is greater than a user-supplied threshold.
+
+```{r edge-detection}
+edge_qc <- detect_facet_edges(
+  cv3d_example_facets,
+  gap_threshold_deg = 90
+)
+
+head(edge_qc)
+table(edge_qc$is_edge_facet)
 ```
 
-Facet size is estimated from Euclidean centre-to-centre distances between neighbouring facets. CV3D also returns a locally smoothed facet-size estimate that gives equal weight to the focal estimate and the mean estimate of its neighbours.
+The threshold is deliberately explicit rather than fitted automatically. The CV3D UI compares 80, 85, 90, 95, 100, and 105 degrees in a face-on QC figure and asks the user to choose the threshold appropriate for the sampled eye boundary.
+
+### Constructing the edge-aware neighbour graph
+
+`find_neighbours_edge_aware()` combines the boundary classification with a conservative first-ring graph:
+
+1. candidate links are restricted to reciprocal six-nearest-neighbour membership;
+2. local core spacing is the median distance to the three closest facet centres;
+3. interior-interior links are retained up to 1.5 times the larger endpoint core spacing;
+4. links touching a detected edge facet use a stricter factor of 1.4;
+5. at detected edge facets only, a near-collinear farther neighbour can be removed by the angular-shadow test when it is at least 1.15 times farther away than the nearer competing neighbour; and
+6. no refill step forces edge facets back to a predetermined neighbour count.
+
+The angular-shadow cutoff is calibrated from the retained six-neighbour interior lattice: two-thirds of its median adjacent angular spacing, constrained to 30--45 degrees. Links are removed reciprocally and the focal facet is not pruned below the configured minimum.
+
+```{r neighbours}
+facets <- find_neighbours_edge_aware(
+  cv3d_example_facets,
+  edge_gap_threshold_deg = 90,
+  verbose = FALSE
+)
+
+head(facets[, c(
+  "ID", "neighbours", "number_of_neighbours",
+  "is_edge_facet", "edge_angular_gap_deg"
+)])
+```
+
+The output preserves the selected edge threshold, local core spacing, and per-facet shadow-pruning count. Additional attributes record the derived shadow-angle cutoff, removed shadow links, and the method identifier. These fields are useful for QC and provenance rather than as optical measurements themselves.
+
+## Facet size
+
+Facet size is estimated from the retained neighbour graph. For each facet, CV3D calculates the arithmetic mean of the three-dimensional Euclidean centre-to-centre distances to all assigned neighbours. This is a local spacing proxy for facet diameter, not a direct segmentation of the facet boundary.
+
+A smoothed estimate is additionally calculated by giving equal weight to the focal facet-size estimate and the mean estimate of its neighbouring facets.
 
 ```{r facet-size}
 facet_sizes <- calculate_facet_size(facets)
@@ -142,19 +166,52 @@ facets <- merge(
 )
 ```
 
+All size and distance outputs are in µm because the input coordinates are assumed to be in µm.
+
 ## Facet surface normals
 
-CV3D provides two facet-normal estimators. The regularised facet-centre envelope estimator is the default in the CV3D UI. It constructs a continuous triangular envelope directly from the facet-centre positions using a reciprocal six-nearest-neighbour surface graph, applies fixed low-shrinkage surface regularisation, and estimates each outward normal as an area- and distance-weighted average of nearby envelope-face normals. The weighting scale is expressed relative to local facet spacing; the UI default is 1.25×. No additional neighbour-normal averaging is applied to envelope normals.
+CV3D provides two facet-normal estimators.
 
-The triangle-based estimator remains available through `get_facet_normals()`. It estimates a focal normal from triangles formed by the focal facet centre and neighbouring facet centres and then averages the focal normal with neighbouring normals. It can be selected for method comparison or sensitivity analyses.
+### Regularised facet-centre envelope
 
-```{r facet-normals}
+`get_facet_normals_envelope()` is the current CV3D UI default. It reconstructs a triangular envelope directly from the facet-centre point cloud and is intentionally independent of the optical neighbour graph.
+
+The envelope is built from reciprocal six-nearest-neighbour links. Triangular three-cliques form candidate faces, and a candidate face is rejected if any edge is longer than 1.4 times the larger local six-neighbour spacing at its endpoints. The retained envelope is regularised by five Taubin-style smoothing cycles with lambda = 0.30 and mu = -0.31.
+
+For each original facet centre, envelope-face normals are combined with weights proportional to face area times a Gaussian distance term. The Gaussian scale is the local facet spacing multiplied by `envelope_factor`; support is truncated at 2.5 times that scale. The weighted normal is normalised and oriented outward relative to the arithmetic centroid of the facet-centre cloud. No post-neighbour normal averaging is applied.
+
+```{r envelope-normals}
 facet_normals <- get_facet_normals_envelope(
-  facets,
+  cv3d_example_facets,
   envelope_factor = 1.25,
   verbose = FALSE
 )
 
+head(facet_normals[, c("ID", "norm.x", "norm.y", "norm.z")])
+```
+
+The current UI offers envelope factors 1, 1.25, 1.5, and 2, with 1.25 as the working default. The 1.25 value is a practical current default informed by CV3D degradation testing, not a claim of universal optimality across all eye shapes or sampling qualities. Smaller values use a more local surface patch; larger values smooth over a broader patch.
+
+### Original CV3D normal estimator
+
+`get_facet_normals()` remains available as the original estimator. It forms triangles from the focal facet and pairs of assigned neighbours, averages the outward local triangle normals, and then averages the focal normal with valid neighbouring normals before renormalisation.
+
+```{r original-normals}
+original_normals <- get_facet_normals(
+  facets,
+  cores = 1,
+  plot_results = FALSE,
+  verbose = FALSE
+)
+
+head(original_normals)
+```
+
+The original and envelope estimators therefore differ in both their surface representation and their smoothing strategy. They should not be treated as interchangeable implementations of the same numerical algorithm.
+
+For the remainder of this vignette, the envelope normals are merged into the facet table.
+
+```{r merge-normals}
 facets <- merge(
   facets,
   facet_normals,
@@ -162,9 +219,27 @@ facets <- merge(
   all.x = TRUE,
   sort = FALSE
 )
-
-head(facet_normals)
 ```
+
+## Standardised face-on plotting
+
+`view_eye_face_on()` provides the standard orientation used by current CV3D QC plots. When no viewing direction is supplied, the mean of the valid unit facet normals defines the outward viewing direction. A screen basis is then constructed from the supplied up vector projected perpendicular to that direction. If requested, the greater face-on extent of the eye is placed vertically.
+
+The same orientation can be reused across plotting layers or between 2D and 3D QC views. In 2D, the function returns the projected coordinates. In 3D, it also returns the `rgl` camera matrix used to reproduce the same face-on orientation interactively.
+
+```{r face-on, fig.width=4.5, fig.height=4.5}
+face_on <- view_eye_face_on(
+  facets,
+  projection = "2D",
+  axes = FALSE,
+  pch = 16,
+  cex = 0.5
+)
+
+head(face_on$projected_coordinates)
+```
+
+This operation changes only the display orientation. It does not rotate or overwrite the analysed coordinates in the input table.
 
 ## Local optical properties
 
@@ -186,18 +261,9 @@ For a square lattice, Snyder's sampling frequency is $1/(2\Delta\phi)$ and the e
 
 `acuity_cpd` is calculated separately as $1/(2\Delta\phi)$ with $\Delta\phi$ in degrees, using the interommatidial-angle relationship used by Feller et al. (2020). CV3D applies this locally to each facet using its mean immediate-neighbour inter-facet angle, so the result is a local anatomical acuity estimate rather than a species-level behavioural acuity measurement. It is independent of the square/hexagonal lattice option.
 
-The principal output columns are:
-
-- `interfacet_angle_deg`: local inter-facet angle in degrees;
-- `interfacet_angle_rad`: the same angle in radians;
-- `sampling_lattice`: the lattice used for Snyder's calculations;
-- `eye_parameter`: Snyder's lattice-corrected eye parameter;
-- `sampling_frequency_rad`: Snyder's lattice-corrected sampling frequency in cycles per radian; and
-- `acuity_cpd`: local anatomical acuity estimate in cycles per degree from the interommatidial-angle relationship used by Feller et al.
-
 ## Landmark-based coordinate alignment
 
-`align_pointcloud()` places a point cloud into a standardized anatomical coordinate system. The anterior landmark becomes the origin, positive x points from right to left, positive y points from anterior to posterior, and z completes a right-handed coordinate system.
+`align_pointcloud()` places a point cloud into a standardised anatomical coordinate system. The anterior landmark becomes the origin, positive x points from right to left, positive y points from anterior to posterior, and z completes a right-handed coordinate system.
 
 ```{r alignment}
 landmarks <- data.frame(
@@ -245,4 +311,6 @@ Under the CV3D viewing convention, anterior is 0 degrees azimuth, left is +90 de
 
 ## Complete CV3D workflow
 
-The functions shown here constitute the R-based analysis stages of CV3D. The complete workflow from 3D image data through surface extraction, facet checking, landmarking, analysis, quality control, and export is guided by the CV3D UI and its accompanying tutorial.
+The functions shown here constitute the R-based analysis stages of CV3D. In the current UI workflow, checked Step-04 facet positions are followed by a dedicated Step 04B neighbour-selection stage. The user compares candidate edge-gap thresholds, chooses the boundary threshold, and stores the resulting edge-aware neighbour graph. Step 05A then consumes that stored graph, calculates facet size, estimates normals using the selected normal method, and derives local optical properties.
+
+The complete workflow from 3D image data through surface extraction, facet checking, neighbour QC, landmarking, analysis, face-on QC plotting, and export is guided by the CV3D UI and its accompanying tutorial.

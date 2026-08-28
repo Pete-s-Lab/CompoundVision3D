@@ -1,69 +1,104 @@
 # CV3D
 
-CV3D is an R package for extracting and analysing compound-eye surface geometry from three-dimensional data. It implements the R-based analysis components of the CV3D workflow.
+**CV3D** is an R package for extracting and analysing three-dimensional compound-eye surface geometry. It provides the numerical methods used by the companion CV3D UI and can also be used directly from R.
 
-## What CV3D does
+- R package repository: https://github.com/Pete-s-Lab/CV3D
+- Graphical workflow: https://github.com/Pete-s-Lab/CV3D-UI
 
-CV3D provides functions to:
+## Main functionality
 
-- import triangle centres and surface normals from ASCII STL meshes;
-- calculate local surface heights;
-- condense thresholded surface-height points into facet candidates;
-- identify neighbouring facets and estimate facet size;
-- estimate facet surface normals either from the original local triangle method or from a regularised facet-centre envelope;
-- calculate local inter-facet angles, eye parameter, sampling frequency, and anatomical acuity estimates;
-- align eye data to anatomical landmarks;
-- create standardised face-on 2D or 3D eye views for visualisation and QC; and
-- project facet viewing directions onto a spherical field of view.
+The package includes tools to:
 
+- import and represent corneal surface meshes;
+- calculate local surface heights and optional local-height normalization;
+- condense thresholded surface points into facet-position candidates;
+- identify eye-boundary facets and construct an edge-aware first-ring neighbour graph;
+- estimate facet size from retained neighbour-centre distances;
+- estimate facet surface normals, including the regularised facet-centre envelope method;
+- calculate local inter-facet angles, Snyder eye parameter, sampling frequency, and anatomical acuity estimates;
+- align point clouds to specimen-level anatomical landmarks;
+- project facet viewing directions to a spherical field of view; and
+- produce standardized eye visualizations and QC outputs.
 
-## Spatial units
-
-CV3D currently assumes that all input mesh and point-cloud coordinates are expressed in micrometres (µm). Facet-size estimates are therefore reported in µm, and Snyder's eye parameter in µm·rad.
-
-## CV3D workflow
-
-The R package can be used directly in R, but it is designed to work together with the [CV3D UI](https://github.com/Pete-s-Lab/CV3D-UI), which guides the complete workflow from 3D image data to analysis-ready compound-eye measurements.
+The end-to-end Fiji/ImageJ + Blender + R workflow is managed by **CV3D UI**. The UI is therefore the recommended entry point for complete datasets, while this repository contains the R analysis package itself.
 
 ## Installation
 
+Install the development version from GitHub with:
+
 ```r
-# install.packages("remotes")
-remotes::install_github("Pete-s-Lab/CV3D")
+remotes::install_github("Pete-s-Lab/CV3D", build_vignettes = TRUE)
 ```
 
-## Basic example
+or:
 
 ```r
+devtools::install_github("Pete-s-Lab/CV3D", build_vignettes = TRUE)
+```
+
+Then load the package with:
+
+```r
+library(CV3D)
+```
+
+## Current geometric workflow
+
+In the current CV3D UI workflow, manually checked facet centres are followed by a dedicated neighbour-selection step. `find_neighbours_edge_aware()` detects likely boundary facets from local angular coverage and constructs a conservative reciprocal neighbour graph. This stored graph is subsequently used for facet-size and optical calculations.
+
+Facet surface normals can be estimated with `get_facet_normals_envelope()`, the current UI default. The method reconstructs a regularised triangular envelope directly from facet centres, independently of the optical neighbour graph, and derives a locally weighted surface normal for each original facet centre. The original `get_facet_normals()` estimator remains available for backward compatibility and method comparison.
+
+See `vignettes/CV3D.Rmd` for a worked overview of the current package workflow and the relevant function documentation for algorithmic details.
+
+## Units
+
+CV3D currently assumes that spatial input coordinates are in **micrometres (µm)**. Consequently, length-derived outputs are reported in µm and the Snyder eye parameter is reported in µm·rad. Functions that operate on arbitrary geometric radii expect those radii in the same coordinate units as their input point clouds.
+
+## Example
+
+The package contains reduced example data for demonstrating the R workflow:
+
+```r
+library(CV3D)
+
 data(cv3d_example_facets)
 
-facets <- find_neighbours(cv3d_example_facets)
-facet_sizes <- calculate_facet_size(facets)
+facets <- find_neighbours_edge_aware(
+  cv3d_example_facets,
+  edge_gap_threshold_deg = 90,
+  verbose = FALSE
+)
 
-head(facet_sizes)
+normals <- get_facet_normals_envelope(
+  cv3d_example_facets,
+  envelope_factor = 1.25,
+  verbose = FALSE
+)
 ```
 
-`find_neighbours()` estimates facet adjacency from local tangent-plane geometry rather than projecting the complete eye onto a sphere. Neighbour detection therefore does not require a global spherical eye model or a global centre of curvature.
-
-For standardised face-on QC and comparison plots, `view_eye_face_on()` can display centred eye clouds in base R or, when installed, `rgl`. Added comparison clouds can be positioned in units of the reference eye's width or height, for example `translate_x = 1.1`.
+The example values are intended to demonstrate the API; dataset-specific parameters should be selected and validated for the data being analysed.
 
 ## Documentation
 
-Individual functions are documented in R:
+Use R's help system for individual functions, for example:
 
 ```r
-?CV3D
-?find_neighbours
-?calculate_facet_size
-?view_eye_face_on
+?find_neighbours_edge_aware
+?get_facet_normals_envelope
+?calculate_local_heights
+?get_optic_properties
 ```
 
-The package vignette provides a worked example of the R workflow.
+The package vignette gives a compact workflow overview:
 
-## Citation
+```r
+vignette("CV3D")
+```
 
-A formal citation for CV3D will be added following publication of the associated methods paper.
+For the complete interactive workflow, file naming, QC steps, and export structure, see the tutorial in the CV3D-UI repository.
 
 ## Issues
 
-Please report bugs and feature requests through the [GitHub issue tracker](https://github.com/Pete-s-Lab/CV3D/issues).
+Please report package problems at:
+
+https://github.com/Pete-s-Lab/CV3D/issues
